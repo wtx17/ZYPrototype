@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智云科技 AI 知识库系统</title>
+<style>
+  :root {
+    --green: #34c759; --yellow: #ffcc00; --red: #ff3b30;
+    --bg: #f5f5f7; --card-bg: rgba(255, 255, 255, 0.65); 
+    --card-border: rgba(255, 255, 255, 0.6);
+    --text: #1d1d1f; --muted: #86868b; --primary: #007aff;
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { 
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; 
+    background-color: var(--bg);
+    background-image: 
+      radial-gradient(circle at 15% 50%, rgba(0, 122, 255, 0.08), transparent 25%),
+      radial-gradient(circle at 85% 30%, rgba(255, 59, 48, 0.06), transparent 25%),
+      radial-gradient(circle at 50% 80%, rgba(52, 199, 89, 0.06), transparent 25%);
+    background-attachment: fixed;
+    color: var(--text); 
+    min-height: 100vh;
+  }
+  .header { 
+    background: rgba(255, 255, 255, 0.7); 
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    color: var(--text); 
+    padding: 16px 32px; 
+    display: flex; justify-content: space-between; align-items: center; 
+    border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+  .header .badge { 
+    font-size: 12px; background: rgba(0, 122, 255, 0.1); 
+    color: var(--primary); padding: 4px 12px; border-radius: 12px; 
+    border: 1px solid rgba(0, 122, 255, 0.2); font-weight: 500;
+  }
+  nav { 
+    display: flex; justify-content: center; gap: 8px; 
+    background: rgba(255, 255, 255, 0.5); 
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.4); 
+    padding: 12px;
+  }
+  nav button { 
+    padding: 8px 20px; border: none; background: transparent; 
+    cursor: pointer; font-size: 14px; font-weight: 500; 
+    color: var(--muted); border-radius: 10px; transition: all .3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+  }
+  nav button.active { 
+    color: var(--text); background: rgba(255, 255, 255, 0.9); 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  nav button:hover:not(.active) { background: rgba(255, 255, 255, 0.4); color: var(--text); }
+  .tab { display: none; padding: 32px 24px; max-width: 960px; margin: 0 auto; animation: fadeUp .4s ease; }
+  .tab.active { display: block; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .card { 
+    background: var(--card-bg); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--card-border); border-radius: 20px; 
+    padding: 28px; margin-bottom: 24px; box-shadow: var(--glass-shadow); 
+  }
+  .card h3 { font-size: 18px; font-weight: 600; margin-bottom: 16px; letter-spacing: -0.3px; }
+  textarea, input { 
+    width: 100%; padding: 14px; background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 14px; 
+    font-size: 15px; resize: vertical; font-family: inherit; 
+    transition: all .2s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
+    color: var(--text);
+  }
+  textarea::placeholder, input::placeholder { color: #a1a1a6; }
+  textarea:focus, input:focus { 
+    outline: none; background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(0, 122, 255, 0.4); 
+    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1), inset 0 2px 4px rgba(0,0,0,0.01); 
+  }
+  .btn { 
+    padding: 10px 20px; border: none; border-radius: 12px; cursor: pointer; 
+    font-size: 14px; font-weight: 500; transition: all .3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { 
+    background: rgba(0, 122, 255, 0.9); color: #fff; 
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25); border: 1px solid rgba(0,0,0,0.05);
+  }
+  .btn-primary:hover { background: #007aff; box-shadow: 0 6px 16px rgba(0, 122, 255, 0.35); }
+  .btn-outline { 
+    background: rgba(255, 255, 255, 0.6); border: 1px solid rgba(255, 255, 255, 0.9); 
+    color: var(--text); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  }
+  .btn-outline:hover { background: rgba(255, 255, 255, 0.9); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+  .btn-danger { 
+    background: rgba(255, 59, 48, 0.9); color: #fff; 
+    box-shadow: 0 4px 12px rgba(255, 59, 48, 0.25); border: 1px solid rgba(0,0,0,0.05);
+  }
+  .btn-group { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+  .answer-box { 
+    background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 16px; 
+    padding: 20px; margin-top: 16px; white-space: pre-wrap; line-height: 1.6; font-size: 15px; 
+    box-shadow: 0 4px 16px rgba(0,0,0,0.02);
+  }
+  .confidence { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.04); border: 1px solid rgba(255,255,255,0.4); backdrop-filter: blur(4px); }
+  .confidence.green { background: rgba(52, 199, 89, 0.15); color: #248a3d; }
+  .confidence.yellow { background: rgba(255, 204, 0, 0.2); color: #997a00; }
+  .confidence.red { background: rgba(255, 59, 48, 0.15); color: #c92a20; }
+  .citation { 
+    background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 12px; 
+    padding: 14px; margin-top: 10px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  }
+  .citation .title { font-weight: 600; color: var(--primary); }
+  .citation .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(0,0,0,0.04); font-size: 14px; }
+  th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: none; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; }
+  .metric { 
+    background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 20px; 
+    padding: 24px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.02); transition: transform .3s;
+  }
+  .metric:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.04); }
+  .metric .value { font-size: 32px; font-weight: 700; letter-spacing: -1px; }
+  .metric .label { font-size: 13px; color: var(--muted); margin-top: 8px; font-weight: 500; }
+  .blocked { 
+    background: rgba(255, 59, 48, 0.1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 59, 48, 0.3); border-radius: 12px; 
+    padding: 14px; color: #c92a20; font-weight: 600; box-shadow: 0 4px 12px rgba(255,59,48,0.05);
+  }
+  .loading { opacity: 0.6; pointer-events: none; }
+  .toast { 
+    position: fixed; top: 24px; right: 24px; padding: 14px 24px; 
+    border-radius: 16px; color: #fff; font-size: 15px; font-weight: 500;
+    z-index: 1000; animation: toastIn .4s cubic-bezier(0.25, 0.8, 0.25, 1); 
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .toast.success { background: rgba(52, 199, 89, 0.9); }
+  .toast.error { background: rgba(255, 59, 48, 0.9); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .empty { text-align: center; color: var(--muted); padding: 48px; font-weight: 500; }
+  .section-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>智云科技 · AI 知识库系统</h1>
+  <span class="badge">原型 v0.1</span>
+</div>
+
+<nav>
+  <button class="active" onclick="switchTab('workbench')">客服工作台</button>
+  <button onclick="switchTab('tickets')">工单管理</button>
+  <button onclick="switchTab('dashboard')">管理仪表盘</button>
+</nav>
+
+<!-- TAB 1: 客服工作台 -->
+<div id="tab-workbench" class="tab active">
+  <div class="card">
+    <h3>AI 智能查询 (Process 1: AI处理)</h3>
+    <div class="section-label">输入客户问题，AI 自动检索知识库并生成回答</div>
+    <textarea id="queryInput" rows="3" placeholder="示例：客户报错 ERR-5043，数据库连接池耗尽，应该如何排查？"></textarea>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="submitQuery()">提交查询</button>
+      <button class="btn btn-outline" onclick="document.getElementById('queryInput').value=''">清空</button>
+    </div>
+    <div id="queryResult"></div>
+  </div>
+
+  <div class="card">
+    <h3>敏感信息脱敏测试 (Process 6: 脱敏处理)</h3>
+    <textarea id="desensitizeInput" rows="2" placeholder="输入包含敏感信息的文本，如：客户的 API key 是 sk-abc123，数据库密码是 pwd=secret123"></textarea>
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="testDesensitize()">执行脱敏</button>
+    </div>
+    <div id="desensitizeResult"></div>
+  </div>
+</div>
+
+<!-- TAB 2: 工单管理 -->
+<div id="tab-tickets" class="tab">
+  <div class="card">
+    <h3>创建工单</h3>
+    <textarea id="ticketDesc" rows="2" placeholder="客户问题描述..."></textarea>
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <input id="ticketErrorCode" placeholder="错误码 (可选)" style="padding:8px;border:1px solid var(--border);border-radius:6px;flex:1;">
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="createTicket()">创建工单</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>工单列表 (Process 7: 记录工单处理情况)</h3>
+    <button class="btn btn-outline" onclick="loadTickets()" style="margin-bottom:12px;">刷新列表</button>
+    <div id="ticketList"><div class="empty">点击"刷新列表"加载工单</div></div>
+  </div>
+</div>
+
+<!-- TAB 3: 管理仪表盘 -->
+<div id="tab-dashboard" class="tab">
+  <div class="card">
+    <h3>系统指标 (Process 8: 汇总)</h3>
+    <button class="btn btn-outline" onclick="loadMetrics()" style="margin-bottom:16px;">刷新指标</button>
+    <div id="metricsDisplay"></div>
+  </div>
+  <div class="card">
+    <h3>知识库同步 (Process 3: 发布 Release Notes)</h3>
+    <textarea id="releaseNoteInput" rows="4" placeholder='{"title": "Release Notes v5.2.0", "version": "v5.2.0", "content": "新增功能...", "source_type": "GitLab"}'></textarea>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="syncKnowledge()">同步至知识库</button>
+    </div>
+    <div id="syncResult"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelector(`nav button[onclick="switchTab('${name}')"]`).classList.add('active');
+  if (name === 'dashboard') loadMetrics();
+  if (name === 'tickets') loadTickets();
+}
+
+function toast(msg, type='success') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// --- Query ---
+async function submitQuery() {
+  const text = document.getElementById('queryInput').value.trim();
+  if (!text) return toast('请输入查询内容', 'error');
+
+  // Create ticket first
+  const tRes = await fetch(API + '/api/tickets', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({customer_desc: text, agent_id: 'agent_xiao_chen'})
+  });
+  const tData = await tRes.json();
+  const ticketId = tData.ticket_id;
+
+  // Submit query
+  const qRes = await fetch(API + '/api/query', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ticket_id: ticketId, query_text: text})
+  });
+  const qData = await qRes.json();
+  renderQueryResult(qData, ticketId);
+}
+
+function renderQueryResult(result, ticketId) {
+  const div = document.getElementById('queryResult');
+  if (!result.success) {
+    div.innerHTML = `<div class="blocked" style="margin-top:12px;">查询失败: ${result.error || '未知错误'}</div>`;
+    return;
+  }
+  const d = result.data;
+  let labelClass = d.confidence_label === 'green' ? 'green' : d.confidence_label === 'yellow' ? 'yellow' : 'red';
+  let html = `<div style="margin-top:16px;">`;
+  html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+    <span class="confidence ${labelClass}">${d.confidence_label.toUpperCase()} · ${(d.confidence_score*100).toFixed(0)}%</span>
+    <span style="font-size:12px;color:var(--muted);">工单 #${ticketId} | 查询ID ${d.log_id}</span>
+  </div>`;
+
+  if (d.is_blocked) {
+    html += `<div class="blocked">已拦截: ${d.block_reason}</div>`;
+  }
+  if (d.escalation_required && !d.is_blocked) {
+    html += `<div class="blocked" style="background:#fef9c3;border-color:#eab308;color:#854d0e;">建议升级: ${d.block_reason || '置信度过低'}</div>`;
+  }
+
+  if (d.answer_text) {
+    html += `<div class="answer-box">${escapeHtml(d.answer_text)}</div>`;
+  }
+
+  if (d.citations && d.citations.length > 0) {
+    html += `<div style="margin-top:12px;"><strong style="font-size:13px;">引用来源:</strong></div>`;
+    d.citations.forEach((c, i) => {
+      html += `<div class="citation">
+        <div class="title">${i+1}. ${escapeHtml(c.doc_title)} (v${escapeHtml(c.doc_version)})</div>
+        <div class="meta">${escapeHtml(c.section || '')}</div>
+        <div style="font-size:12px;margin-top:4px;color:var(--muted);">${escapeHtml(c.snippet || '').substring(0, 200)}</div>
+      </div>`;
+    });
+  }
+
+  html += `<div class="btn-group">
+    <button class="btn btn-outline" onclick="copyAnswer(this)" data-answer="${escapeAttr(d.answer_text)}">复制回答</button>
+    <button class="btn btn-outline" onclick="submitFeedback('${d.log_id}', true)">回答准确</button>
+    <button class="btn btn-outline" onclick="submitFeedback('${d.log_id}', false)">回答有误</button>
+    <button class="btn btn-danger" onclick="escalateTicket('${ticketId}')">升级至二线研发</button>
+  </div>`;
+  html += `</div>`;
+  div.innerHTML = html;
+}
+
+function copyAnswer(btn) {
+  const text = btn.dataset.answer;
+  navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'));
+}
+
+async function submitFeedback(logId, accurate) {
+  await fetch(API + `/api/query/${logId}/feedback`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({log_id: logId, agent_id: 'agent_xiao_chen', is_accurate: accurate, correction_notes: ''})
+  });
+  toast(accurate ? '已标记为准确 (Process 2: 知识沉淀)' : '已标记为有误，将进入修正流程');
+}
+
+async function escalateTicket(ticketId) {
+  await fetch(API + `/api/tickets/${ticketId}/escalate?reason=客服主动升级`, {method: 'POST'});
+  toast('工单已升级至二线研发 (Process 4)');
+}
+
+// --- Desensitize ---
+async function testDesensitize() {
+  const text = document.getElementById('desensitizeInput').value.trim();
+  if (!text) return toast('请输入测试文本', 'error');
+  const res = await fetch(API + '/api/desensitize', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text})
+  });
+  const data = await res.json();
+  document.getElementById('desensitizeResult').innerHTML = `
+    <div style="margin-top:12px;">
+      <div class="section-label">原始文本</div>
+      <div class="answer-box">${escapeHtml(data.original)}</div>
+      <div class="section-label" style="margin-top:12px;">脱敏后</div>
+      <div class="answer-box" style="background:#f0fdf4;">${escapeHtml(data.desensitized)}</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--muted);">共脱敏 ${data.changes} 处敏感信息</div>
+    </div>`;
+}
+
+// --- Tickets ---
+async function createTicket() {
+  const desc = document.getElementById('ticketDesc').value.trim();
+  if (!desc) return toast('请输入问题描述', 'error');
+  const code = document.getElementById('ticketErrorCode').value.trim();
+  await fetch(API + '/api/tickets', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({customer_desc: desc, error_code: code || null})
+  });
+  toast('工单已创建');
+  document.getElementById('ticketDesc').value = '';
+  document.getElementById('ticketErrorCode').value = '';
+  loadTickets();
+}
+
+async function loadTickets() {
+  const res = await fetch(API + '/api/tickets');
+  const data = await res.json();
+  const div = document.getElementById('ticketList');
+  if (!data.data || data.data.length === 0) {
+    div.innerHTML = '<div class="empty">暂无工单</div>';
+    return;
+  }
+  let html = `<table><thead><tr><th>ID</th><th>描述</th><th>错误码</th><th>状态</th><th>创建时间</th></tr></thead><tbody>`;
+  data.data.forEach(t => {
+    const statusMap = {open:'待处理', ai_processing:'AI处理中', pending_review:'待审核', resolved:'已解决', escalated:'已升级', closed:'已关闭'};
+    html += `<tr>
+      <td>#${t.id}</td>
+      <td>${escapeHtml(t.customer_desc).substring(0, 60)}</td>
+      <td>${t.error_code || '-'}</td>
+      <td>${statusMap[t.status] || t.status}</td>
+      <td>${new Date(t.created_at).toLocaleString()}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+// --- Metrics ---
+async function loadMetrics() {
+  const res = await fetch(API + '/api/metrics');
+  const data = await res.json();
+  const m = data.data;
+  document.getElementById('metricsDisplay').innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric"><div class="value">${m.total_tickets}</div><div class="label">总工单数</div></div>
+      <div class="metric"><div class="value">${(m.escalation_rate*100).toFixed(1)}%</div><div class="label">升级率</div></div>
+      <div class="metric"><div class="value" style="color:var(--green);">${(m.green_rate*100).toFixed(1)}%</div><div class="label">绿色置信度</div></div>
+      <div class="metric"><div class="value" style="color:var(--yellow);">${(m.yellow_rate*100).toFixed(1)}%</div><div class="label">黄色置信度</div></div>
+      <div class="metric"><div class="value" style="color:var(--red);">${(m.red_rate*100).toFixed(1)}%</div><div class="label">红色置信度</div></div>
+      <div class="metric"><div class="value">${(m.knowledge_base_usage_rate*100).toFixed(0)}%</div><div class="label">知识库使用率</div></div>
+    </div>`;
+}
+
+// --- Knowledge Sync ---
+async function syncKnowledge() {
+  const text = document.getElementById('releaseNoteInput').value.trim();
+  if (!text) return toast('请输入 Release Note 内容 (JSON)', 'error');
+  try {
+    const note = JSON.parse(text);
+    const res = await fetch(API + '/api/knowledge/sync', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(note)
+    });
+    const data = await res.json();
+    document.getElementById('syncResult').innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${data.message} (文档ID: ${data.doc_id})</div>`;
+    toast('知识库同步成功 (Process 3)');
+  } catch(e) {
+    toast('JSON 格式错误', 'error');
+  }
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escapeAttr(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
