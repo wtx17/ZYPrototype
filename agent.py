@@ -1,9 +1,12 @@
-"""Process 1 (AI处理) + Process 2 (知识沉淀): LangChain RAG pipeline.
+"""Process 1 (AI处理): Dual-collection RAG pipeline with D1/D2 permission isolation.
 
-Pipeline:
-    query → desensitize → forbidden-check → retrieve → build-context →
-    LLM generate (with citation) → validate citations → compute confidence →
-    structured AIResponse
+CS queries:
+  - D1: full content retrieved → LLM context
+  - D2: presence check only (boolean) → NO content in LLM context
+  - If D2 matches: append upgrade hint, set d2_match_found=True
+
+RD/Doc queries:
+  - Both D1 and D2 full content available
 """
 
 from __future__ import annotations
@@ -12,7 +15,6 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
@@ -28,10 +30,9 @@ from config import (
     FORBIDDEN_PATTERNS,
 )
 from desensitizer import desensitize
-from knowledge_store import retrieve
+from knowledge_store import retrieve_ai_knowledge, retrieve_rd_knowledge, check_rd_match
 from models import AIResponse, Citation, ConfidenceLabel
 
-# --- Prompt template forces structured JSON ---
 RAG_SYSTEM_PROMPT = """You are an AI customer support assistant for 智云科技 (Zhiyun Tech).
 
 Below you MAY receive relevant knowledge base documents as context. Use them when available, but if the context is empty or irrelevant, answer the user's question using your own knowledge and mark it clearly.
@@ -57,28 +58,40 @@ Rules:
 - If context is empty or irrelevant: answer from your own knowledge, empty citations, confidence 0.3-0.5, and note "知识库未覆盖此问题，以下回答来自通用知识，请人工核实".
 - If the query is dangerous (security/credentials/legal/unreleased): answer with a refusal, confidence 0.1.
 - Citations: only cite documents actually provided in the context. If none provided, leave citations empty.
+- If you see "[内部提示]" in the context: do NOT reference this in citations. It is only a signal for you to add a note at the end of your answer: "检测到相关内部技术资料，建议升级工单以获得更精准的支持。"
 """
 
-RAG_USER_PROMPT = """## Knowledge Base Context (may be empty)
+RAG_USER_PROMPT = """## Conversation History (may be empty)
+{history}
+
+## Knowledge Base Context (may be empty)
 {context}
 
-## Customer Query
+## Current Query
 {query}
 
-Please generate your response following the JSON format specified in the system prompt."""
+Please generate your response following the JSON format specified in the system prompt. If conversation history is provided, your answer should be consistent with previous exchanges."""
 
 
-def _build_context(docs_with_scores: list) -> tuple[str, list[dict]]:
-    """Build a text context block and raw citation candidates from retrieved docs."""
+def _build_history(history: list) -> str:
+    if not history:
+        return "(无历史对话)"
+    parts = []
+    for msg in history:
+        role_label = "用户" if msg.get("role") == "user" else "AI助手"
+        parts.append(f"[{role_label}]: {msg.get('content', '')}")
+    return "\n".join(parts)
+
+
+def _build_context(docs_with_scores: list, source: str = "D1") -> tuple[str, list[dict]]:
     context_parts = []
     citation_candidates = []
     for i, (doc, score) in enumerate(docs_with_scores):
         meta = doc.metadata
         block = (
-            f"[Doc {i+1}] Title: {meta.get('title', 'Unknown')}\n"
-            f"Source: {meta.get('source_type', 'Unknown')} | "
-            f"Version: {meta.get('version', 'N/A')} | "
-            f"Status: {meta.get('validity_status', '有效')}\n"
+            f"[{source} Doc {i+1}] Title: {meta.get('title', 'Unknown')}\n"
+            f"Category: {meta.get('category', meta.get('entry_type', 'Unknown'))} | "
+            f"Version: {meta.get('version', 'N/A')}\n"
             f"Content:\n{doc.page_content}\n"
         )
         context_parts.append(block)
@@ -92,7 +105,6 @@ def _build_context(docs_with_scores: list) -> tuple[str, list[dict]]:
 
 
 def _check_forbidden(query: str) -> Optional[str]:
-    """Check if the query matches any forbidden category (BR-02). Returns category name if blocked."""
     for pattern, category in FORBIDDEN_PATTERNS:
         if re.search(pattern, query, re.IGNORECASE):
             return category
@@ -100,16 +112,13 @@ def _check_forbidden(query: str) -> Optional[str]:
 
 
 def _parse_llm_response(raw: str) -> Optional[dict]:
-    """Parse LLM JSON output, handling common formatting issues."""
     raw = raw.strip()
-    # Remove markdown code fences if present
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Try to extract JSON from the text
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
             try:
@@ -128,61 +137,82 @@ def _compute_confidence_label(score: float) -> ConfidenceLabel:
         return ConfidenceLabel.RED
 
 
-def query_ai(query_text: str, ticket_id: str) -> AIResponse:
-    """Main RAG pipeline: process a customer support query through the AI system.
+def query_ai(query_text: str, ticket_id: Optional[int] = None, role: str = "cs",
+             history: Optional[list] = None) -> AIResponse:
+    """Main RAG pipeline with D1/D2 permission isolation.
 
-    Returns an AIResponse with answer, citations, confidence score/label,
-    and flags for blocking/escalation.
+    Args:
+        query_text: The customer's query
+        ticket_id: Associated ticket ID (optional — None for standalone queries)
+        role: One of 'cs', 'rd', 'doc', 'manager' — controls D2 access
+        history: List of prior turns [{"role": "user"|"assistant", "content": "..."}]
     """
     logger = logging.getLogger(__name__)
     log_id = str(uuid.uuid4())[:8]
-    flags = []  # collect warnings to prepend to the answer later
-    logger.info("=== [Query %s] ticket=%s ===", log_id, ticket_id)
+    flags = []
+    history = history or []
+    logger.info("=== [Query %s] ticket=%s role=%s history_turns=%d ===", log_id, ticket_id, role, len(history))
     logger.info("[Query] raw_input=%s", query_text[:120])
 
-    # Step 1: Desensitize (Process 6)
+    # Step 1: Desensitize
     clean_query, changes = desensitize(query_text)
     if changes > 0:
         logger.info("[Desensitize] removed %d sensitive fields", changes)
 
-    # Step 2: Forbidden category check (BR-02) — warn but don't block
+    # Step 2: Forbidden category check
     forbidden = _check_forbidden(clean_query)
     if forbidden:
-        logger.warning("[Forbidden] category hit: %s — will ask LLM to refuse", forbidden)
+        logger.warning("[Forbidden] category: %s", forbidden)
         flags.append(f"⚠️ 该问题涉及 {forbidden}，AI 应拒绝回答并建议升级。")
 
-    # Step 3: Retrieve from vector store (best-effort)
-    docs_with_scores = []
+    # Step 3: Retrieve from D1 (always, full content)
+    d1_docs = []
     try:
-        docs_with_scores = retrieve(clean_query)
+        d1_docs = retrieve_ai_knowledge(clean_query)
     except Exception as e:
-        err_msg = str(e)
-        logger.error("[Retrieve] failed: %s — will proceed without KB context", err_msg)
-        flags.append(f"知识库检索异常: {err_msg}")
+        logger.error("[Retrieve D1] failed: %s", e)
+        flags.append(f"知识库检索异常: {e}")
 
-    logger.info(
-        "[Retrieve] got %d docs | scores=%s",
-        len(docs_with_scores),
-        [round(s, 3) for _, s in docs_with_scores],
-    )
-    for i, (doc, score) in enumerate(docs_with_scores):
-        logger.info(
-            "[Retrieve]   #%d title=%s score=%.3f",
-            i + 1, doc.metadata.get("title", "?"), score,
-        )
+    logger.info("[Retrieve D1] %d docs | scores=%s", len(d1_docs), [round(s, 3) for _, s in d1_docs])
 
-    if not docs_with_scores:
-        logger.info("[Retrieve] no KB docs — LLM will answer from own knowledge")
+    # Step 4: D2 handling — depends on role
+    d2_docs = []
+    d2_match_found = False
+    d2_hint = None
 
-    # Step 4: LLM Generation (always invoked)
-    context, citation_candidates = _build_context(docs_with_scores)
-    if not docs_with_scores:
+    if role in ("rd", "doc"):
+        # RD and Doc can access full D2 content
+        try:
+            d2_docs = retrieve_rd_knowledge(clean_query)
+            logger.info("[Retrieve D2] %d docs (full access for %s)", len(d2_docs), role)
+        except Exception as e:
+            logger.error("[Retrieve D2] failed: %s", e)
+    else:
+        # CS/Manager: presence check only (NO content)
+        try:
+            d2_match_found = check_rd_match(clean_query)
+            if d2_match_found:
+                logger.info("[Retrieve D2] match detected — restricting content from CS")
+                d2_hint = "检测到相关内部技术资料，建议升级工单以获得更精准的支持。"
+        except Exception as e:
+            logger.error("[Retrieve D2 check] failed: %s", e)
+
+    # Step 5: Build context from D1 (and D2 if permitted)
+    context, citation_candidates = _build_context(d1_docs, source="D1")
+
+    if d2_docs:
+        d2_context, d2_citations = _build_context(d2_docs, source="D2")
+        context = (context + "\n---\n" + d2_context) if context else d2_context
+        citation_candidates.extend(d2_citations)
+
+    if not d1_docs and not d2_docs:
         context = "(知识库中未找到相关文档，请根据你的通用知识回答，并标注为知识库未覆盖)"
+        logger.info("[Retrieve] no KB docs — LLM will answer from own knowledge")
+    elif d2_match_found and role in ("cs", "manager"):
+        context += "\n\n[内部提示] 研发知识库中有相关资料但无权查看。请在回答末尾提醒用户升级工单。"
 
-    logger.info(
-        "[LLM] calling model=%s base_url=%s context_len=%d flags=%d",
-        LLM_MODEL, BAILIAN_BASE_URL, len(context), len(flags),
-    )
+    # Step 6: LLM Generation
+    logger.info("[LLM] calling model=%s context_len=%d flags=%d", LLM_MODEL, len(context), len(flags))
     llm = ChatOpenAI(
         model=LLM_MODEL,
         openai_api_key=DASHSCOPE_API_KEY,
@@ -196,42 +226,44 @@ def query_ai(query_text: str, ticket_id: str) -> AIResponse:
     chain = prompt | llm | StrOutputParser()
 
     try:
-        raw_output = chain.invoke({"context": context, "query": clean_query})
+        history_text = _build_history(history)
+        raw_output = chain.invoke({"context": context, "query": clean_query, "history": history_text})
         logger.info("[LLM] raw_output preview=%s", raw_output[:200])
     except Exception as e:
         err_msg = str(e)
         logger.error("[LLM] call failed: %s", err_msg)
         return AIResponse(
-            log_id=log_id, ticket_id=ticket_id, query_text=query_text,
+            log_id=log_id, ticket_id=ticket_id or None, query_text=query_text,
             answer_text=f"AI 服务调用失败: {err_msg}",
             citations=[], confidence_score=0.0, confidence_label=ConfidenceLabel.RED,
             is_blocked=False, block_reason=None, escalation_required=True,
+            d2_match_found=d2_match_found, d2_hint=d2_hint,
         )
 
-    # Step 5: Parse structured output
+    # Step 7: Parse structured output
     parsed = _parse_llm_response(raw_output)
     if parsed is None:
-        logger.warning("[Parse] failed to parse JSON — returning raw output as plain answer")
+        logger.warning("[Parse] JSON parse failed — returning raw output")
         answer_text = raw_output[:2000]
         if flags:
             answer_text = "\n".join(flags) + "\n\n" + answer_text
+        if d2_match_found and role in ("cs", "manager"):
+            answer_text += "\n\n⚠️ 检测到相关内部技术资料，建议升级工单以获得更精准的支持。"
         return AIResponse(
-            log_id=log_id, ticket_id=ticket_id, query_text=query_text,
+            log_id=log_id, ticket_id=ticket_id or None, query_text=query_text,
             answer_text=answer_text,
             citations=[], confidence_score=0.3, confidence_label=ConfidenceLabel.YELLOW,
             is_blocked=False, block_reason="JSON 解析失败，已返回原始输出。请人工核查。",
-            escalation_required=False,
+            escalation_required=False, d2_match_found=d2_match_found, d2_hint=d2_hint,
         )
 
     answer = parsed.get("answer", "")
     llm_confidence = float(parsed.get("confidence", 0.5))
     raw_citations = parsed.get("citations", [])
-    logger.info(
-        "[Parse] answer_len=%d | llm_confidence=%.2f | citation_count=%d",
-        len(answer), llm_confidence, len(raw_citations),
-    )
+    logger.info("[Parse] answer_len=%d llm_confidence=%.2f citations=%d",
+                len(answer), llm_confidence, len(raw_citations))
 
-    # Step 6: Citation validation — soft, not a hard block
+    # Step 8: Citation validation
     citations = []
     for c in raw_citations:
         citations.append(Citation(
@@ -241,40 +273,36 @@ def query_ai(query_text: str, ticket_id: str) -> AIResponse:
             snippet=c.get("snippet", ""),
         ))
 
-    if not citations:
-        logger.info("[Citation] no citations — answer from LLM general knowledge")
-
-    # Step 7: Confidence computation
+    # Step 9: Confidence computation
     if citations and citation_candidates:
-        avg_similarity = (
-            sum(c["similarity"] for c in citation_candidates[: len(citations)]) / len(citations)
-        )
+        n = min(len(citations), len(citation_candidates))
+        avg_similarity = sum(c["similarity"] for c in citation_candidates[:n]) / n
         blended_confidence = round(avg_similarity * 0.4 + llm_confidence * 0.6, 2)
     else:
-        # No KB backing — use LLM's own (conservative) estimate
         avg_similarity = 0.0
         blended_confidence = round(llm_confidence * 0.8, 2)
 
-    # Cap confidence when no KB docs were retrieved
-    if not docs_with_scores and blended_confidence > 0.5:
+    if not d1_docs and not d2_docs and blended_confidence > 0.5:
         blended_confidence = 0.5
 
-    logger.info(
-        "[Confidence] retrieval_avg=%.3f | llm_self=%.2f | blended=%.2f → %s",
-        avg_similarity, llm_confidence, blended_confidence,
-        _compute_confidence_label(blended_confidence).value,
-    )
+    logger.info("[Confidence] retrieval_avg=%.3f llm_self=%.2f blended=%.2f → %s",
+                avg_similarity, llm_confidence, blended_confidence,
+                _compute_confidence_label(blended_confidence).value)
     label = _compute_confidence_label(blended_confidence)
 
-    # Prepend flags/warnings to the answer
     if flags:
         answer = "\n".join(flags) + "\n\n" + answer
 
-    escalation_required = label == ConfidenceLabel.RED
+    # Append D2 hint to answer for CS
+    if d2_match_found and role in ("cs", "manager"):
+        if "建议升级" not in answer:
+            answer += "\n\n⚠️ 检测到相关内部技术资料，建议升级工单以获得更精准的支持。"
+
+    escalation_required = label == ConfidenceLabel.RED or d2_match_found
 
     return AIResponse(
         log_id=log_id,
-        ticket_id=ticket_id,
+        ticket_id=ticket_id or None,
         query_text=query_text,
         answer_text=answer,
         citations=citations,
@@ -283,4 +311,6 @@ def query_ai(query_text: str, ticket_id: str) -> AIResponse:
         is_blocked=False,
         block_reason=None,
         escalation_required=escalation_required,
+        d2_match_found=d2_match_found,
+        d2_hint=d2_hint,
     )

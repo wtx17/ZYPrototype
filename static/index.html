@@ -7,114 +7,96 @@
 <style>
   :root {
     --green: #34c759; --yellow: #ffcc00; --red: #ff3b30;
-    --bg: #f5f5f7; --card-bg: rgba(255, 255, 255, 0.65); 
-    --card-border: rgba(255, 255, 255, 0.6);
+    --bg: #f5f5f7; --card-bg: rgba(255,255,255,0.65);
+    --card-border: rgba(255,255,255,0.6);
     --text: #1d1d1f; --muted: #86868b; --primary: #007aff;
-    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+    --glass-shadow: 0 8px 32px rgba(0,0,0,0.04);
+    --cs-color: #007aff; --rd-color: #ff9500; --doc-color: #34c759; --mgr-color: #af52de;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { 
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; 
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
     background-color: var(--bg);
-    background-image: 
-      radial-gradient(circle at 15% 50%, rgba(0, 122, 255, 0.08), transparent 25%),
-      radial-gradient(circle at 85% 30%, rgba(255, 59, 48, 0.06), transparent 25%),
-      radial-gradient(circle at 50% 80%, rgba(52, 199, 89, 0.06), transparent 25%);
+    background-image:
+      radial-gradient(circle at 15% 50%, rgba(0,122,255,0.08), transparent 25%),
+      radial-gradient(circle at 85% 30%, rgba(255,59,48,0.06), transparent 25%),
+      radial-gradient(circle at 50% 80%, rgba(52,199,89,0.06), transparent 25%);
     background-attachment: fixed;
-    color: var(--text); 
-    min-height: 100vh;
+    color: var(--text); min-height: 100vh;
   }
-  .header { 
-    background: rgba(255, 255, 255, 0.7); 
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    color: var(--text); 
-    padding: 16px 32px; 
-    display: flex; justify-content: space-between; align-items: center; 
-    border-bottom: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+  .header {
+    background: rgba(255,255,255,0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    padding: 14px 32px; display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.5); box-shadow: 0 2px 10px rgba(0,0,0,0.02);
     position: sticky; top: 0; z-index: 100;
   }
   .header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
-  .header .badge { 
-    font-size: 12px; background: rgba(0, 122, 255, 0.1); 
-    color: var(--primary); padding: 4px 12px; border-radius: 12px; 
-    border: 1px solid rgba(0, 122, 255, 0.2); font-weight: 500;
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .role-badge {
+    font-size: 12px; padding: 5px 14px; border-radius: 20px; font-weight: 600; border: 1px solid rgba(255,255,255,0.4);
+    backdrop-filter: blur(4px);
   }
-  nav { 
-    display: flex; justify-content: center; gap: 8px; 
-    background: rgba(255, 255, 255, 0.5); 
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.4); 
-    padding: 12px;
+  .role-badge.cs { background: rgba(0,122,255,0.12); color: #007aff; }
+  .role-badge.rd { background: rgba(255,149,0,0.12); color: #b36800; }
+  .role-badge.doc { background: rgba(52,199,89,0.12); color: #1f7a36; }
+  .role-badge.manager { background: rgba(175,82,222,0.12); color: #7a2da0; }
+  .role-select { font-size: 13px; padding: 6px 12px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.7); cursor: pointer; }
+  .btn-sm { font-size: 12px; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.7); cursor: pointer; font-weight: 500; }
+  .btn-sm:hover { background: rgba(255,255,255,0.95); }
+  nav {
+    display: flex; justify-content: center; gap: 8px;
+    background: rgba(255,255,255,0.5); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.4); padding: 12px;
   }
-  nav button { 
-    padding: 8px 20px; border: none; background: transparent; 
-    cursor: pointer; font-size: 14px; font-weight: 500; 
-    color: var(--muted); border-radius: 10px; transition: all .3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+  nav button {
+    padding: 8px 20px; border: none; background: transparent; cursor: pointer;
+    font-size: 14px; font-weight: 500; color: var(--muted); border-radius: 10px;
+    transition: all .3s cubic-bezier(0.25, 0.8, 0.25, 1);
   }
-  nav button.active { 
-    color: var(--text); background: rgba(255, 255, 255, 0.9); 
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-  }
-  nav button:hover:not(.active) { background: rgba(255, 255, 255, 0.4); color: var(--text); }
+  nav button.active { color: var(--text); background: rgba(255,255,255,0.9); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  nav button:hover:not(.active) { background: rgba(255,255,255,0.4); color: var(--text); }
   .tab { display: none; padding: 32px 24px; max-width: 960px; margin: 0 auto; animation: fadeUp .4s ease; }
   .tab.active { display: block; }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .card { 
+  .card {
     background: var(--card-bg); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--card-border); border-radius: 20px; 
-    padding: 28px; margin-bottom: 24px; box-shadow: var(--glass-shadow); 
+    border: 1px solid var(--card-border); border-radius: 20px;
+    padding: 28px; margin-bottom: 24px; box-shadow: var(--glass-shadow);
   }
   .card h3 { font-size: 18px; font-weight: 600; margin-bottom: 16px; letter-spacing: -0.3px; }
-  textarea, input { 
-    width: 100%; padding: 14px; background: rgba(255, 255, 255, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 14px; 
-    font-size: 15px; resize: vertical; font-family: inherit; 
-    transition: all .2s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
-    color: var(--text);
+  textarea, input[type="text"] {
+    width: 100%; padding: 14px; background: rgba(255,255,255,0.6);
+    border: 1px solid rgba(255,255,255,0.8); border-radius: 14px;
+    font-size: 15px; resize: vertical; font-family: inherit; transition: all .2s;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.01); color: var(--text);
   }
   textarea::placeholder, input::placeholder { color: #a1a1a6; }
-  textarea:focus, input:focus { 
-    outline: none; background: rgba(255, 255, 255, 0.9);
-    border-color: rgba(0, 122, 255, 0.4); 
-    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1), inset 0 2px 4px rgba(0,0,0,0.01); 
-  }
-  .btn { 
-    padding: 10px 20px; border: none; border-radius: 12px; cursor: pointer; 
-    font-size: 14px; font-weight: 500; transition: all .3s cubic-bezier(0.25, 0.8, 0.25, 1); 
-    display: inline-flex; align-items: center; justify-content: center;
+  textarea:focus, input:focus { outline: none; background: rgba(255,255,255,0.9); border-color: rgba(0,122,255,0.4); box-shadow: 0 0 0 4px rgba(0,122,255,0.1); }
+  .btn {
+    padding: 10px 20px; border: none; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 500;
+    transition: all .3s; display: inline-flex; align-items: center; justify-content: center;
   }
   .btn:active { transform: scale(0.97); }
-  .btn-primary { 
-    background: rgba(0, 122, 255, 0.9); color: #fff; 
-    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25); border: 1px solid rgba(0,0,0,0.05);
-  }
-  .btn-primary:hover { background: #007aff; box-shadow: 0 6px 16px rgba(0, 122, 255, 0.35); }
-  .btn-outline { 
-    background: rgba(255, 255, 255, 0.6); border: 1px solid rgba(255, 255, 255, 0.9); 
-    color: var(--text); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-  }
-  .btn-outline:hover { background: rgba(255, 255, 255, 0.9); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-  .btn-danger { 
-    background: rgba(255, 59, 48, 0.9); color: #fff; 
-    box-shadow: 0 4px 12px rgba(255, 59, 48, 0.25); border: 1px solid rgba(0,0,0,0.05);
-  }
+  .btn-primary { background: rgba(0,122,255,0.9); color: #fff; box-shadow: 0 4px 12px rgba(0,122,255,0.25); border: 1px solid rgba(0,0,0,0.05); }
+  .btn-primary:hover { background: #007aff; }
+  .btn-outline { background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.9); color: var(--text); }
+  .btn-outline:hover { background: rgba(255,255,255,0.9); }
+  .btn-danger { background: rgba(255,59,48,0.9); color: #fff; box-shadow: 0 4px 12px rgba(255,59,48,0.25); }
+  .btn-success { background: rgba(52,199,89,0.9); color: #fff; box-shadow: 0 4px 12px rgba(52,199,89,0.25); }
   .btn-group { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
-  .answer-box { 
-    background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 16px; 
-    padding: 20px; margin-top: 16px; white-space: pre-wrap; line-height: 1.6; font-size: 15px; 
-    box-shadow: 0 4px 16px rgba(0,0,0,0.02);
+  .answer-box {
+    background: rgba(255,255,255,0.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.6); border-radius: 16px;
+    padding: 20px; margin-top: 16px; white-space: pre-wrap; line-height: 1.7; font-size: 15px;
   }
-  .confidence { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.04); border: 1px solid rgba(255,255,255,0.4); backdrop-filter: blur(4px); }
-  .confidence.green { background: rgba(52, 199, 89, 0.15); color: #248a3d; }
-  .confidence.yellow { background: rgba(255, 204, 0, 0.2); color: #997a00; }
-  .confidence.red { background: rgba(255, 59, 48, 0.15); color: #c92a20; }
-  .citation { 
-    background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 12px; 
-    padding: 14px; margin-top: 10px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  .confidence { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .confidence.green { background: rgba(52,199,89,0.15); color: #248a3d; }
+  .confidence.yellow { background: rgba(255,204,0,0.2); color: #997a00; }
+  .confidence.red { background: rgba(255,59,48,0.15); color: #c92a20; }
+  .citation {
+    background: rgba(255,255,255,0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.8); border-radius: 12px;
+    padding: 14px; margin-top: 10px; font-size: 13px;
   }
   .citation .title { font-weight: 600; color: var(--primary); }
   .citation .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
@@ -122,119 +104,129 @@
   th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(0,0,0,0.04); font-size: 14px; }
   th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
   tr:last-child td { border-bottom: none; }
-  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; }
-  .metric { 
-    background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 20px; 
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+  .metric {
+    background: rgba(255,255,255,0.5); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.7); border-radius: 20px;
     padding: 24px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.02); transition: transform .3s;
   }
   .metric:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.04); }
-  .metric .value { font-size: 32px; font-weight: 700; letter-spacing: -1px; }
+  .metric .value { font-size: 30px; font-weight: 700; letter-spacing: -1px; }
   .metric .label { font-size: 13px; color: var(--muted); margin-top: 8px; font-weight: 500; }
-  .blocked { 
-    background: rgba(255, 59, 48, 0.1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 59, 48, 0.3); border-radius: 12px; 
-    padding: 14px; color: #c92a20; font-weight: 600; box-shadow: 0 4px 12px rgba(255,59,48,0.05);
+  .hint-warning {
+    background: rgba(255,204,0,0.15); border: 1px solid rgba(255,204,0,0.3); border-radius: 12px;
+    padding: 14px; color: #854d0e; font-weight: 600; margin-top: 12px;
   }
-  .loading { opacity: 0.6; pointer-events: none; }
-  .toast { 
-    position: fixed; top: 24px; right: 24px; padding: 14px 24px; 
+  .blocked {
+    background: rgba(255,59,48,0.1); border: 1px solid rgba(255,59,48,0.3); border-radius: 12px;
+    padding: 14px; color: #c92a20; font-weight: 600;
+  }
+  .toast {
+    position: fixed; top: 24px; right: 24px; padding: 14px 24px;
     border-radius: 16px; color: #fff; font-size: 15px; font-weight: 500;
-    z-index: 1000; animation: toastIn .4s cubic-bezier(0.25, 0.8, 0.25, 1); 
-    box-shadow: 0 8px 32px rgba(0,0,0,0.15); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    z-index: 1000; animation: toastIn .4s; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
   }
-  .toast.success { background: rgba(52, 199, 89, 0.9); }
-  .toast.error { background: rgba(255, 59, 48, 0.9); }
-  @keyframes toastIn { from { opacity: 0; transform: translateY(-20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
-  .empty { text-align: center; color: var(--muted); padding: 48px; font-weight: 500; }
+  .toast.success { background: rgba(52,199,89,0.9); }
+  .toast.error { background: rgba(255,59,48,0.9); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
   .section-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .login-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.3); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center; z-index: 200;
+  }
+  .login-card {
+    background: rgba(255,255,255,0.9); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-radius: 24px; padding: 40px; text-align: center; box-shadow: 0 24px 80px rgba(0,0,0,0.12);
+    max-width: 420px; width: 90%;
+  }
+  .login-card h2 { font-size: 24px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.5px; }
+  .login-card .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .role-card {
+    padding: 16px; border-radius: 16px; border: 2px solid rgba(0,0,0,0.06); cursor: pointer;
+    text-align: center; transition: all .2s; background: rgba(255,255,255,0.6);
+  }
+  .role-card:hover { border-color: var(--primary); background: rgba(0,122,255,0.04); transform: translateY(-1px); }
+  .role-card .role-icon { font-size: 28px; margin-bottom: 6px; }
+  .role-card .role-name { font-weight: 600; font-size: 15px; }
+  .role-card .role-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .empty { text-align: center; color: var(--muted); padding: 48px; font-weight: 500; }
+  .d2-badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; background: rgba(255,149,0,0.12); color: #b36800; }
+  .status-tag { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+  .status-tag.pending { background: rgba(255,204,0,0.15); color: #997a00; }
+  .status-tag.escalated { background: rgba(255,59,48,0.12); color: #c92a20; }
+  .status-tag.resolved { background: rgba(52,199,89,0.12); color: #248a3d; }
+  .status-tag.ai_processing { background: rgba(0,122,255,0.10); color: #007aff; }
+  .status-tag.closed { background: rgba(0,0,0,0.05); color: var(--muted); }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>智云科技 · AI 知识库系统</h1>
-  <span class="badge">原型 v0.1</span>
-</div>
-
-<nav>
-  <button class="active" onclick="switchTab('workbench')">客服工作台</button>
-  <button onclick="switchTab('tickets')">工单管理</button>
-  <button onclick="switchTab('dashboard')">管理仪表盘</button>
-</nav>
-
-<!-- TAB 1: 客服工作台 -->
-<div id="tab-workbench" class="tab active">
-  <div class="card">
-    <h3>AI 智能查询 (Process 1: AI处理)</h3>
-    <div class="section-label">输入客户问题，AI 自动检索知识库并生成回答</div>
-    <textarea id="queryInput" rows="3" placeholder="示例：客户报错 ERR-5043，数据库连接池耗尽，应该如何排查？"></textarea>
-    <div class="btn-group">
-      <button class="btn btn-primary" onclick="submitQuery()">提交查询</button>
-      <button class="btn btn-outline" onclick="document.getElementById('queryInput').value=''">清空</button>
-    </div>
-    <div id="queryResult"></div>
-  </div>
-
-  <div class="card">
-    <h3>敏感信息脱敏测试 (Process 6: 脱敏处理)</h3>
-    <textarea id="desensitizeInput" rows="2" placeholder="输入包含敏感信息的文本，如：客户的 API key 是 sk-abc123，数据库密码是 pwd=secret123"></textarea>
-    <div class="btn-group">
-      <button class="btn btn-outline" onclick="testDesensitize()">执行脱敏</button>
-    </div>
-    <div id="desensitizeResult"></div>
-  </div>
-</div>
-
-<!-- TAB 2: 工单管理 -->
-<div id="tab-tickets" class="tab">
-  <div class="card">
-    <h3>创建工单</h3>
-    <textarea id="ticketDesc" rows="2" placeholder="客户问题描述..."></textarea>
-    <div style="display:flex;gap:10px;margin-top:8px;">
-      <input id="ticketErrorCode" placeholder="错误码 (可选)" style="padding:8px;border:1px solid var(--border);border-radius:6px;flex:1;">
-    </div>
-    <div class="btn-group">
-      <button class="btn btn-primary" onclick="createTicket()">创建工单</button>
-    </div>
-  </div>
-  <div class="card">
-    <h3>工单列表 (Process 7: 记录工单处理情况)</h3>
-    <button class="btn btn-outline" onclick="loadTickets()" style="margin-bottom:12px;">刷新列表</button>
-    <div id="ticketList"><div class="empty">点击"刷新列表"加载工单</div></div>
-  </div>
-</div>
-
-<!-- TAB 3: 管理仪表盘 -->
-<div id="tab-dashboard" class="tab">
-  <div class="card">
-    <h3>系统指标 (Process 8: 汇总)</h3>
-    <button class="btn btn-outline" onclick="loadMetrics()" style="margin-bottom:16px;">刷新指标</button>
-    <div id="metricsDisplay"></div>
-  </div>
-  <div class="card">
-    <h3>知识库同步 (Process 3: 发布 Release Notes)</h3>
-    <textarea id="releaseNoteInput" rows="4" placeholder='{"title": "Release Notes v5.2.0", "version": "v5.2.0", "content": "新增功能...", "source_type": "GitLab"}'></textarea>
-    <div class="btn-group">
-      <button class="btn btn-primary" onclick="syncKnowledge()">同步至知识库</button>
-    </div>
-    <div id="syncResult"></div>
-  </div>
-</div>
+<div id="app"></div>
 
 <script>
-const API = '';
+// ============ State ============
+const state = {
+  role: null,
+  username: null,
+  currentTab: null,
+  conversationId: null,
+  chatHistory: [],  // [{role: 'user'|'assistant', content: '...'}]
+};
 
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  document.querySelector(`nav button[onclick="switchTab('${name}')"]`).classList.add('active');
-  if (name === 'dashboard') loadMetrics();
-  if (name === 'tickets') loadTickets();
+const roleTabs = {
+  cs: ['query', 'tickets', 'desensitize'],
+  rd: ['escalations', 'submit-solution', 'release-notes', 'rd-knowledge'],
+  doc: ['submit-knowledge', 'review-knowledge'],
+  manager: ['dashboard', 'all-tickets'],
+};
+
+const roleLabels = { cs: '客服', rd: '二线研发', doc: '文档团队', manager: '管理层' };
+const roleUsernames = { cs: '小陈', rd: '王工', doc: '李婷', manager: '林总' };
+const statusLabels = { pending: '待处理', ai_processing: 'AI处理中', resolved: '已解决', escalated: '已升级', closed: '已关闭' };
+
+// ============ API ============
+async function api(path, opts = {}) {
+  const res = await fetch(path, { credentials: 'same-origin', ...opts });
+  if (res.status === 401) { logout(); throw new Error('未登录'); }
+  if (res.status === 403) { toast('权限不足', 'error'); throw new Error('权限不足'); }
+  return res.json();
 }
 
-function toast(msg, type='success') {
+// ============ Auth ============
+async function login(role) {
+  const username = roleUsernames[role];
+  const data = await api('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role, username }),
+  });
+  state.role = data.role;
+  state.username = data.username;
+  renderApp();
+}
+
+async function logout() {
+  await api('/api/auth/logout', { method: 'POST' });
+  state.role = null; state.username = null;
+  renderApp();
+}
+
+async function checkAuth() {
+  try {
+    const data = await api('/api/auth/me');
+    if (data.authenticated) { state.role = data.role; state.username = data.username; }
+  } catch (e) { /* not logged in */ }
+  renderApp();
+}
+
+function switchRole(e) {
+  const role = e.target.value;
+  if (role) login(role);
+}
+
+// ============ Toast ============
+function toast(msg, type = 'success') {
   const t = document.createElement('div');
   t.className = 'toast ' + type;
   t.textContent = msg;
@@ -242,199 +234,624 @@ function toast(msg, type='success') {
   setTimeout(() => t.remove(), 3000);
 }
 
-// --- Query ---
-async function submitQuery() {
-  const text = document.getElementById('queryInput').value.trim();
-  if (!text) return toast('请输入查询内容', 'error');
-
-  // Create ticket first
-  const tRes = await fetch(API + '/api/tickets', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({customer_desc: text, agent_id: 'agent_xiao_chen'})
-  });
-  const tData = await tRes.json();
-  const ticketId = tData.ticket_id;
-
-  // Submit query
-  const qRes = await fetch(API + '/api/query', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ticket_id: ticketId, query_text: text})
-  });
-  const qData = await qRes.json();
-  renderQueryResult(qData, ticketId);
-}
-
-function renderQueryResult(result, ticketId) {
-  const div = document.getElementById('queryResult');
-  if (!result.success) {
-    div.innerHTML = `<div class="blocked" style="margin-top:12px;">查询失败: ${result.error || '未知错误'}</div>`;
+// ============ Render ============
+function renderApp() {
+  if (!state.role) {
+    document.getElementById('app').innerHTML = renderLogin();
     return;
   }
-  const d = result.data;
-  let labelClass = d.confidence_label === 'green' ? 'green' : d.confidence_label === 'yellow' ? 'yellow' : 'red';
-  let html = `<div style="margin-top:16px;">`;
-  html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-    <span class="confidence ${labelClass}">${d.confidence_label.toUpperCase()} · ${(d.confidence_score*100).toFixed(0)}%</span>
-    <span style="font-size:12px;color:var(--muted);">工单 #${ticketId} | 查询ID ${d.log_id}</span>
-  </div>`;
-
-  if (d.is_blocked) {
-    html += `<div class="blocked">已拦截: ${d.block_reason}</div>`;
-  }
-  if (d.escalation_required && !d.is_blocked) {
-    html += `<div class="blocked" style="background:#fef9c3;border-color:#eab308;color:#854d0e;">建议升级: ${d.block_reason || '置信度过低'}</div>`;
-  }
-
-  if (d.answer_text) {
-    html += `<div class="answer-box">${escapeHtml(d.answer_text)}</div>`;
-  }
-
-  if (d.citations && d.citations.length > 0) {
-    html += `<div style="margin-top:12px;"><strong style="font-size:13px;">引用来源:</strong></div>`;
-    d.citations.forEach((c, i) => {
-      html += `<div class="citation">
-        <div class="title">${i+1}. ${escapeHtml(c.doc_title)} (v${escapeHtml(c.doc_version)})</div>
-        <div class="meta">${escapeHtml(c.section || '')}</div>
-        <div style="font-size:12px;margin-top:4px;color:var(--muted);">${escapeHtml(c.snippet || '').substring(0, 200)}</div>
-      </div>`;
-    });
-  }
-
-  html += `<div class="btn-group">
-    <button class="btn btn-outline" onclick="copyAnswer(this)" data-answer="${escapeAttr(d.answer_text)}">复制回答</button>
-    <button class="btn btn-outline" onclick="submitFeedback('${d.log_id}', true)">回答准确</button>
-    <button class="btn btn-outline" onclick="submitFeedback('${d.log_id}', false)">回答有误</button>
-    <button class="btn btn-danger" onclick="escalateTicket('${ticketId}')">升级至二线研发</button>
-  </div>`;
-  html += `</div>`;
-  div.innerHTML = html;
+  state.currentTab = state.currentTab || roleTabs[state.role][0];
+  document.getElementById('app').innerHTML = renderMain();
+  switchTab(state.currentTab);
 }
 
-function copyAnswer(btn) {
-  const text = btn.dataset.answer;
-  navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'));
-}
-
-async function submitFeedback(logId, accurate) {
-  await fetch(API + `/api/query/${logId}/feedback`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({log_id: logId, agent_id: 'agent_xiao_chen', is_accurate: accurate, correction_notes: ''})
-  });
-  toast(accurate ? '已标记为准确 (Process 2: 知识沉淀)' : '已标记为有误，将进入修正流程');
-}
-
-async function escalateTicket(ticketId) {
-  await fetch(API + `/api/tickets/${ticketId}/escalate?reason=客服主动升级`, {method: 'POST'});
-  toast('工单已升级至二线研发 (Process 4)');
-}
-
-// --- Desensitize ---
-async function testDesensitize() {
-  const text = document.getElementById('desensitizeInput').value.trim();
-  if (!text) return toast('请输入测试文本', 'error');
-  const res = await fetch(API + '/api/desensitize', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({text})
-  });
-  const data = await res.json();
-  document.getElementById('desensitizeResult').innerHTML = `
-    <div style="margin-top:12px;">
-      <div class="section-label">原始文本</div>
-      <div class="answer-box">${escapeHtml(data.original)}</div>
-      <div class="section-label" style="margin-top:12px;">脱敏后</div>
-      <div class="answer-box" style="background:#f0fdf4;">${escapeHtml(data.desensitized)}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--muted);">共脱敏 ${data.changes} 处敏感信息</div>
+function renderLogin() {
+  return `
+    <div class="login-overlay">
+      <div class="login-card">
+        <h2>智云科技 · AI 知识库系统</h2>
+        <div class="subtitle">请选择角色进入系统</div>
+        <div class="role-grid">
+          <div class="role-card" onclick="login('cs')">
+            <div class="role-icon">💬</div>
+            <div class="role-name">客服</div>
+            <div class="role-desc">AI查询 · 工单管理</div>
+          </div>
+          <div class="role-card" onclick="login('rd')">
+            <div class="role-icon">🔧</div>
+            <div class="role-name">二线研发</div>
+            <div class="role-desc">升级处理 · 知识沉淀</div>
+          </div>
+          <div class="role-card" onclick="login('doc')">
+            <div class="role-icon">📄</div>
+            <div class="role-name">文档团队</div>
+            <div class="role-desc">提交知识 · 审核</div>
+          </div>
+          <div class="role-card" onclick="login('manager')">
+            <div class="role-icon">📊</div>
+            <div class="role-name">管理层</div>
+            <div class="role-desc">仪表盘 · 汇总</div>
+          </div>
+        </div>
+      </div>
     </div>`;
 }
 
-// --- Tickets ---
-async function createTicket() {
-  const desc = document.getElementById('ticketDesc').value.trim();
-  if (!desc) return toast('请输入问题描述', 'error');
-  const code = document.getElementById('ticketErrorCode').value.trim();
-  await fetch(API + '/api/tickets', {
+function renderMain() {
+  const tabs = roleTabs[state.role];
+  const tabLabels = {
+    query: 'AI 查询 (P1)', tickets: '工单管理 (P7)',
+    desensitize: '脱敏工具 (P6)',
+    escalations: '升级工单 (P4/P5)', 'submit-solution': '提交方案 (P2)',
+    'release-notes': '发布 Release Notes (P3)', 'rd-knowledge': 'D2 知识库',
+    'submit-knowledge': '提交知识 (P6)', 'review-knowledge': '审核知识 (P6)',
+    dashboard: '仪表盘 (P8)', 'all-tickets': '全部工单',
+  };
+  const navBtns = tabs.map(t =>
+    `<button class="${t === state.currentTab ? 'active' : ''}" onclick="switchTab('${t}')">${tabLabels[t] || t}</button>`
+  ).join('');
+
+  return `
+    <div class="header">
+      <h1>智云科技 · AI 知识库系统</h1>
+      <div class="header-right">
+        <span class="role-badge ${state.role}">${roleLabels[state.role]}: ${state.username}</span>
+        <select class="role-select" onchange="switchRole(event)">
+          <option value="">切换角色</option>
+          <option value="cs">客服</option>
+          <option value="rd">二线研发</option>
+          <option value="doc">文档团队</option>
+          <option value="manager">管理层</option>
+        </select>
+        <button class="btn-sm" onclick="logout()">退出</button>
+      </div>
+    </div>
+    <nav>${navBtns}</nav>
+    <div id="tab-query" class="tab">${renderCSQuery()}</div>
+    <div id="tab-tickets" class="tab">${renderCSTickets()}</div>
+    <div id="tab-desensitize" class="tab">${renderDesensitize()}</div>
+    <div id="tab-escalations" class="tab">${renderRDEscalations()}</div>
+    <div id="tab-submit-solution" class="tab">${renderRDSubmitSolution()}</div>
+    <div id="tab-release-notes" class="tab">${renderRDReleaseNotes()}</div>
+    <div id="tab-rd-knowledge" class="tab">${renderRDKnowledge()}</div>
+    <div id="tab-submit-knowledge" class="tab">${renderDocSubmit()}</div>
+    <div id="tab-review-knowledge" class="tab">${renderDocReview()}</div>
+    <div id="tab-dashboard" class="tab">${renderDashboard()}</div>
+    <div id="tab-all-tickets" class="tab">${renderAllTickets()}</div>
+  `;
+}
+
+function switchTab(name) {
+  state.currentTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('tab-' + name);
+  if (el) el.classList.add('active');
+  const btn = document.querySelector(`nav button[onclick="switchTab('${name}')"]`);
+  if (btn) btn.classList.add('active');
+
+  if (name === 'query') scrollChatBottom();
+  if (name === 'tickets' || name === 'all-tickets') loadTickets();
+  if (name === 'escalations') loadEscalatedTickets();
+  if (name === 'dashboard') loadMetrics();
+  if (name === 'review-knowledge') loadPendingReviews();
+  if (name === 'rd-knowledge') loadRDKnowledge();
+}
+
+// ============ CS: AI Query (P1) ============
+function renderCSQuery() {
+  const historyHtml = state.chatHistory.length === 0
+    ? `<div class="empty">开始对话 — 输入客户问题，AI 将基于 D1 公开知识库回答</div>`
+    : state.chatHistory.map(m => renderChatBubble(m)).join('');
+
+  return `
+    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:500px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;">AI 智能对话 (Process 1)</h3>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-sm" onclick="newChat()">新对话</button>
+          <button class="btn-sm" onclick="createTicketFromChat()" ${state.chatHistory.length === 0 ? 'disabled' : ''}>转为工单</button>
+        </div>
+      </div>
+      <div class="section-label">多轮对话模式。AI 从 D1 知识库检索，D2 仅做存在性提示不泄露内容。工单需手动创建。</div>
+      <div id="chatMessages" style="flex:1;overflow-y:auto;padding:8px 0;">${historyHtml}</div>
+      <div style="display:flex;gap:10px;margin-top:12px;border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;">
+        <textarea id="chatInput" rows="2" placeholder="输入客户问题..." style="flex:1;"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitChat();}"></textarea>
+        <button class="btn btn-primary" onclick="submitChat()" style="align-self:flex-end;">发送</button>
+      </div>
+    </div>`;
+}
+
+function renderChatBubble(msg) {
+  const isUser = msg.role === 'user';
+  return `
+    <div style="display:flex;gap:10px;margin-bottom:16px;justify-content:${isUser ? 'flex-end' : 'flex-start'};">
+      <div style="max-width:80%;padding:12px 18px;border-radius:18px;font-size:14px;line-height:1.6;
+        ${isUser
+          ? 'background:rgba(0,122,255,0.9);color:#fff;border-bottom-right-radius:6px;'
+          : 'background:rgba(255,255,255,0.8);color:var(--text);border-bottom-left-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.04);'}">
+        ${isUser ? escHtml(msg.content) : msg.content}
+        ${msg.meta ? msg.meta : ''}
+      </div>
+    </div>`;
+}
+
+function newChat() {
+  state.chatHistory = [];
+  state.conversationId = null;
+  refreshChatUI();
+}
+
+async function submitChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  input.disabled = true;
+
+  // Add user message
+  state.chatHistory.push({ role: 'user', content: text });
+  refreshChatUI();
+  scrollChatBottom();
+
+  // Call API with full history
+  try {
+    const qRes = await api('/api/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query_text: text,
+        ticket_id: null,
+        history: state.chatHistory.slice(0, -1),  // exclude current user msg from history
+      }),
+    });
+
+    if (!qRes.success) {
+      state.chatHistory.push({ role: 'assistant', content: `查询失败: ${qRes.error || '未知错误'}` });
+    } else {
+      const d = qRes.data;
+      let metaHtml = `<div style="margin-top:6px;font-size:11px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">`;
+      const lc = d.confidence_label;
+      const colors = { green: '#34c759', yellow: '#ffcc00', red: '#ff3b30' };
+      metaHtml += `<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;background:${lc==='green'?'rgba(52,199,89,0.2)':lc==='yellow'?'rgba(255,204,0,0.2)':'rgba(255,59,48,0.2)'};color:${colors[lc]};">${d.confidence_label.toUpperCase()} ${(d.confidence_score*100).toFixed(0)}%</span>`;
+
+      if (d.d2_match_found) {
+        metaHtml += `<span style="color:#b36800;font-weight:600;font-size:10px;">⚠️ ${d.d2_hint || '建议升级工单'}</span>`;
+      }
+      if (d.is_blocked) {
+        metaHtml += `<span style="color:#ff3b30;font-weight:600;font-size:10px;">已拦截: ${d.block_reason}</span>`;
+      }
+      metaHtml += `</div>`;
+
+      // Build full content with citations
+      let content = d.answer_text || '(无回答)';
+      if (d.citations && d.citations.length > 0) {
+        content += `<div style="margin-top:8px;font-size:11px;opacity:0.7;border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;">📎 引用: `;
+        content += d.citations.map((c, i) => `${i+1}. ${escHtml(c.doc_title)}`).join('; ');
+        content += `</div>`;
+      }
+      content += metaHtml;
+
+      state.chatHistory.push({ role: 'assistant', content, meta: metaHtml });
+    }
+  } catch (e) {
+    state.chatHistory.push({ role: 'assistant', content: `网络错误: ${e.message}` });
+  }
+
+  input.disabled = false;
+  input.focus();
+  refreshChatUI();
+  scrollChatBottom();
+}
+
+function scrollChatBottom() {
+  setTimeout(() => {
+    const el = document.getElementById('chatMessages');
+    if (el) el.scrollTop = el.scrollHeight;
+  }, 100);
+}
+
+function refreshChatUI() {
+  const div = document.getElementById('chatMessages');
+  if (!div) return;
+  if (state.chatHistory.length === 0) {
+    div.innerHTML = '<div class="empty">开始对话 — 输入客户问题，AI 将基于 D1 公开知识库回答</div>';
+  } else {
+    div.innerHTML = state.chatHistory.map(m => renderChatBubble(m)).join('');
+  }
+  // Update the "转为工单" button state
+  const btn = document.querySelector('button[onclick="createTicketFromChat()"]');
+  if (btn) btn.disabled = state.chatHistory.length === 0;
+}
+
+async function createTicketFromChat() {
+  if (state.chatHistory.length === 0) return toast('没有对话内容', 'error');
+  // Use first user message as title, full history as description
+  const firstMsg = state.chatHistory.find(m => m.role === 'user');
+  const title = firstMsg ? firstMsg.content.substring(0, 80) : '对话记录';
+  const description = state.chatHistory
+    .map(m => `[${m.role === 'user' ? '客服' : 'AI'}]: ${m.content.replace(/<[^>]*>/g, '')}`)
+    .join('\n\n');
+
+  const tRes = await api('/api/tickets', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({customer_desc: desc, error_code: code || null})
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, description, created_by: 'cs' }),
+  });
+  toast(`工单 #${tRes.ticket_id} 已创建，请前往工单管理查看`);
+}
+
+async function doEscalate(ticketId) {
+  await api(`/api/tickets/${ticketId}/escalate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: 'AI推荐升级' }),
+  });
+  toast('工单已升级至二线研发 (P4)');
+}
+
+// ============ CS: Tickets (P7) ============
+function renderCSTickets() {
+  return `
+    <div class="card">
+      <h3>创建工单</h3>
+      <input type="text" id="ticketTitle" placeholder="工单标题" style="margin-bottom:8px;">
+      <textarea id="ticketDesc" rows="2" placeholder="客户问题描述..."></textarea>
+      <div class="btn-group"><button class="btn btn-primary" onclick="createTicket()">创建工单</button></div>
+    </div>
+    <div class="card">
+      <h3>工单列表 (Process 7)</h3>
+      <button class="btn btn-outline" onclick="loadTickets()" style="margin-bottom:12px;">刷新列表</button>
+      <div id="ticketList"><div class="empty">点击刷新加载工单</div></div>
+    </div>`;
+}
+
+async function createTicket() {
+  const title = document.getElementById('ticketTitle').value.trim();
+  const desc = document.getElementById('ticketDesc').value.trim();
+  if (!title) return toast('请输入标题', 'error');
+  await api('/api/tickets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, description: desc, created_by: 'cs' }),
   });
   toast('工单已创建');
+  document.getElementById('ticketTitle').value = '';
   document.getElementById('ticketDesc').value = '';
-  document.getElementById('ticketErrorCode').value = '';
   loadTickets();
 }
 
 async function loadTickets() {
-  const res = await fetch(API + '/api/tickets');
-  const data = await res.json();
+  const data = await api('/api/tickets');
   const div = document.getElementById('ticketList');
-  if (!data.data || data.data.length === 0) {
-    div.innerHTML = '<div class="empty">暂无工单</div>';
-    return;
-  }
-  let html = `<table><thead><tr><th>ID</th><th>描述</th><th>错误码</th><th>状态</th><th>创建时间</th></tr></thead><tbody>`;
+  if (!data.data || data.data.length === 0) { div.innerHTML = '<div class="empty">暂无工单</div>'; return; }
+  let html = `<table><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>升级</th><th>创建者</th><th>时间</th><th>操作</th></tr></thead><tbody>`;
   data.data.forEach(t => {
-    const statusMap = {open:'待处理', ai_processing:'AI处理中', pending_review:'待审核', resolved:'已解决', escalated:'已升级', closed:'已关闭'};
+    const st = statusLabels[t.status] || t.status;
+    const escTag = t.escalated_to_rd ? '<span class="d2-badge">已升级</span>' : '-';
     html += `<tr>
-      <td>#${t.id}</td>
-      <td>${escapeHtml(t.customer_desc).substring(0, 60)}</td>
-      <td>${t.error_code || '-'}</td>
-      <td>${statusMap[t.status] || t.status}</td>
+      <td>#${t.id}</td><td>${escHtml(t.title).substring(0, 50)}</td>
+      <td><span class="status-tag ${t.status}">${st}</span></td>
+      <td>${escTag}</td><td>${t.created_by}</td>
       <td>${new Date(t.created_at).toLocaleString()}</td>
-    </tr>`;
+      <td>
+        <button class="btn-sm" onclick="showTicketDetail(${t.id})">详情</button>
+        ${!t.escalated_to_rd && t.status !== 'closed' && t.status !== 'resolved' ? `<button class="btn-sm" onclick="doEscalate(${t.id})">升级</button>` : ''}
+        ${t.status !== 'closed' && t.status !== 'resolved' ? `<button class="btn-sm" onclick="showHandlingForm(${t.id})">记录处理</button>` : ''}
+      </td></tr>`;
   });
   html += '</tbody></table>';
   div.innerHTML = html;
 }
 
-// --- Metrics ---
+async function showTicketDetail(ticketId) {
+  const data = await api(`/api/tickets/${ticketId}`);
+  const t = data.data;
+  const refs = t.ai_public_refs ? JSON.parse(t.ai_public_refs) : [];
+  let html = `<div style="margin-top:12px;">
+    <p><strong>标题:</strong> ${escHtml(t.title)}</p>
+    <p><strong>描述:</strong> ${escHtml(t.description || '-')}</p>
+    <p><strong>状态:</strong> ${statusLabels[t.status]}</p>
+    <p><strong>AI 建议:</strong></p><div class="answer-box">${escHtml(t.ai_suggestion || '无')}</div>`;
+  if (t.ai_restricted_hint) html += `<div class="hint-warning">⚠️ 检测到内部资料匹配</div>`;
+  if (refs.length) {
+    html += `<p style="margin-top:8px;"><strong>引用来源:</strong></p>`;
+    refs.forEach((c, i) => html += `<div class="citation"><div class="title">${i+1}. ${escHtml(c.doc_title)}</div></div>`);
+  }
+  if (t.rd_solution) html += `<p style="margin-top:8px;"><strong>RD 解决方案:</strong> ${escHtml(t.rd_solution)}</p>`;
+  if (t.handling_record) {
+    const records = JSON.parse(t.handling_record);
+    html += `<p style="margin-top:8px;"><strong>处理记录:</strong></p>`;
+    records.forEach(r => html += `<div style="font-size:13px;color:var(--muted);">${r.time}: ${escHtml(r.notes)}</div>`);
+  }
+  html += `</div>`;
+  document.getElementById('ticketList').insertAdjacentHTML('beforebegin', `<div class="card">${html}<button class="btn btn-outline" onclick="this.parentElement.remove()" style="margin-top:12px;">关闭</button></div>`);
+}
+
+function showHandlingForm(ticketId) {
+  const notes = prompt('请输入处理记录:');
+  if (!notes) return;
+  api(`/api/tickets/${ticketId}/handling`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes }),
+  }).then(() => { toast('处理记录已保存'); loadTickets(); });
+}
+
+// ============ CS: Desensitize (P6) ============
+function renderDesensitize() {
+  return `
+    <div class="card">
+      <h3>敏感信息脱敏测试 (Process 6)</h3>
+      <textarea id="desensitizeInput" rows="3" placeholder="输入包含敏感信息的文本，如：客户 API key: sk-abc123，密码 pwd=secret123"></textarea>
+      <div class="btn-group"><button class="btn btn-outline" onclick="testDesensitize()">执行脱敏</button></div>
+      <div id="desensitizeResult"></div>
+    </div>`;
+}
+
+async function testDesensitize() {
+  const text = document.getElementById('desensitizeInput').value.trim();
+  if (!text) return toast('请输入文本', 'error');
+  const data = await api('/api/desensitize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+  document.getElementById('desensitizeResult').innerHTML = `
+    <div style="margin-top:12px;">
+      <div class="section-label">原始文本</div><div class="answer-box">${escHtml(data.original)}</div>
+      <div class="section-label" style="margin-top:12px;">脱敏后</div><div class="answer-box" style="background:#f0fdf4;">${escHtml(data.desensitized)}</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--muted);">共脱敏 ${data.changes} 处敏感信息</div>
+    </div>`;
+}
+
+// ============ RD: Escalations (P4/P5) ============
+function renderRDEscalations() {
+  return `
+    <div class="card">
+      <h3>升级工单列表 (Process 4 & 5)</h3>
+      <button class="btn btn-outline" onclick="loadEscalatedTickets()" style="margin-bottom:12px;">刷新列表</button>
+      <div id="escalatedList"><div class="empty">点击刷新加载升级工单</div></div>
+    </div>`;
+}
+
+async function loadEscalatedTickets() {
+  const data = await api('/api/tickets');
+  const div = document.getElementById('escalatedList');
+  const tickets = (data.data || []).filter(t => t.escalated_to_rd && t.status !== 'closed');
+  if (!tickets.length) { div.innerHTML = '<div class="empty">暂无升级工单</div>'; return; }
+  let html = `<table><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody>`;
+  tickets.forEach(t => {
+    html += `<tr>
+      <td>#${t.id}</td><td>${escHtml(t.title).substring(0, 50)}</td>
+      <td><span class="status-tag ${t.status}">${statusLabels[t.status]}</span></td>
+      <td>${escHtml((t.description || '').substring(0, 80))}</td>
+      <td>
+        <button class="btn-sm" onclick="showResolveForm(${t.id})">解决</button>
+        ${t.ai_suggestion ? `<button class="btn-sm" onclick="alert('AI建议:\\n${t.ai_suggestion}')">查看AI建议</button>` : ''}
+      </td></tr>`;
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+function showResolveForm(ticketId) {
+  const solution = prompt('请输入解决方案:');
+  if (!solution) return;
+  const version = prompt('版本号 (可选):') || '';
+  api(`/api/escalations/${ticketId}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ solution, version }),
+  }).then(() => { toast('升级工单已解决 (P5)'); loadEscalatedTickets(); });
+}
+
+// ============ RD: Submit Solution (P2) ============
+function renderRDSubmitSolution() {
+  return `
+    <div class="card">
+      <h3>沉淀知识至 D2 研发知识库 (Process 2)</h3>
+      <input type="text" id="solTitle" placeholder="方案标题" style="margin-bottom:8px;">
+      <input type="text" id="solVersion" placeholder="版本号 (可选)" style="margin-bottom:8px;">
+      <input type="text" id="solKeywords" placeholder="关键词 (逗号分隔)" style="margin-bottom:8px;">
+      <textarea id="solContent" rows="5" placeholder="方案内容..."></textarea>
+      <div class="btn-group"><button class="btn btn-primary" onclick="submitSolution()">提交至 D2</button></div>
+      <div id="solResult"></div>
+    </div>`;
+}
+
+async function submitSolution() {
+  const title = document.getElementById('solTitle').value.trim();
+  const content = document.getElementById('solContent').value.trim();
+  if (!title || !content) return toast('请填写标题和内容', 'error');
+  const data = await api('/api/knowledge/rd', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title, content,
+      version: document.getElementById('solVersion').value.trim(),
+      keywords: document.getElementById('solKeywords').value.trim(),
+      entry_type: 'solution',
+    }),
+  });
+  document.getElementById('solResult').innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${data.message} (ID: ${data.id})</div>`;
+  toast('知识已沉淀至 D2');
+  document.getElementById('solTitle').value = '';
+  document.getElementById('solContent').value = '';
+}
+
+// ============ RD: Release Notes (P3) ============
+function renderRDReleaseNotes() {
+  return `
+    <div class="card">
+      <h3>发布 Release Notes 至 D2 (Process 3)</h3>
+      <input type="text" id="rnTitle" placeholder="Release Notes 标题" style="margin-bottom:8px;">
+      <input type="text" id="rnVersion" placeholder="版本号" style="margin-bottom:8px;">
+      <input type="text" id="rnKeywords" placeholder="关键词" style="margin-bottom:8px;">
+      <textarea id="rnContent" rows="5" placeholder="Release Notes 内容..."></textarea>
+      <div class="btn-group"><button class="btn btn-primary" onclick="submitReleaseNote()">发布至 D2</button></div>
+      <div id="rnResult"></div>
+    </div>`;
+}
+
+async function submitReleaseNote() {
+  const title = document.getElementById('rnTitle').value.trim();
+  const content = document.getElementById('rnContent').value.trim();
+  if (!title || !content) return toast('请填写标题和内容', 'error');
+  const version = document.getElementById('rnVersion').value.trim();
+  const data = await api('/api/knowledge/release-notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title, content, version,
+      keywords: document.getElementById('rnKeywords').value.trim(),
+      release_note: title,
+    }),
+  });
+  document.getElementById('rnResult').innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${data.message} (ID: ${data.id})</div>`;
+  toast('Release Note 已发布');
+  document.getElementById('rnTitle').value = '';
+  document.getElementById('rnContent').value = '';
+}
+
+// ============ RD: D2 Knowledge List ============
+function renderRDKnowledge() {
+  return `
+    <div class="card">
+      <h3>D2 研发知识库</h3>
+      <button class="btn btn-outline" onclick="loadRDKnowledge()" style="margin-bottom:12px;">刷新列表</button>
+      <div id="rdKnowledgeList"><div class="empty">点击刷新加载 D2 知识库</div></div>
+    </div>`;
+}
+
+async function loadRDKnowledge() {
+  const data = await api('/api/knowledge/rd');
+  const div = document.getElementById('rdKnowledgeList');
+  if (!data.data || !data.data.length) { div.innerHTML = '<div class="empty">暂无 D2 知识条目</div>'; return; }
+  let html = `<table><thead><tr><th>ID</th><th>标题</th><th>类型</th><th>版本</th><th>时间</th></tr></thead><tbody>`;
+  data.data.forEach(e => {
+    html += `<tr>
+      <td>#${e.id}</td><td>${escHtml(e.title)}</td>
+      <td><span class="d2-badge">${e.entry_type === 'release_note' ? 'Release Note' : '方案'}</span></td>
+      <td>${e.version || '-'}</td>
+      <td>${new Date(e.created_at).toLocaleString()}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+// ============ Doc: Submit Knowledge (P6) ============
+function renderDocSubmit() {
+  return `
+    <div class="card">
+      <h3>提交知识至 D1 (Process 6: 脱敏、审查)</h3>
+      <div class="section-label">提交的知识将自动脱敏后进入待审核状态</div>
+      <input type="text" id="docTitle" placeholder="文档标题" style="margin-bottom:8px;">
+      <input type="text" id="docCategory" placeholder="分类 (可选)" style="margin-bottom:8px;">
+      <input type="text" id="docKeywords" placeholder="关键词 (可选)" style="margin-bottom:8px;">
+      <textarea id="docContent" rows="5" placeholder="文档内容..."></textarea>
+      <div class="btn-group"><button class="btn btn-primary" onclick="submitKnowledge()">提交至 D1 (待审核)</button></div>
+      <div id="docSubmitResult"></div>
+    </div>`;
+}
+
+async function submitKnowledge() {
+  const title = document.getElementById('docTitle').value.trim();
+  const content = document.getElementById('docContent').value.trim();
+  if (!title || !content) return toast('请填写标题和内容', 'error');
+  const data = await api('/api/knowledge/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title, content,
+      category: document.getElementById('docCategory').value.trim(),
+      keywords: document.getElementById('docKeywords').value.trim(),
+    }),
+  });
+  document.getElementById('docSubmitResult').innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${data.message} (ID: ${data.id}, 脱敏 ${data.desensitized_changes} 处)</div>`;
+  toast('知识已提交至 D1 待审核');
+  document.getElementById('docTitle').value = '';
+  document.getElementById('docContent').value = '';
+}
+
+// ============ Doc: Review Knowledge (P6) ============
+function renderDocReview() {
+  return `
+    <div class="card">
+      <h3>审核待发布知识 (Process 6)</h3>
+      <button class="btn btn-outline" onclick="loadPendingReviews()" style="margin-bottom:12px;">刷新待审核列表</button>
+      <div id="pendingReviewList"><div class="empty">点击刷新加载待审核知识</div></div>
+    </div>`;
+}
+
+async function loadPendingReviews() {
+  const data = await api('/api/knowledge/pending');
+  const div = document.getElementById('pendingReviewList');
+  if (!data.data || !data.data.length) { div.innerHTML = '<div class="empty">暂无待审核知识</div>'; return; }
+  let html = `<table><thead><tr><th>ID</th><th>标题</th><th>分类</th><th>时间</th><th>操作</th></tr></thead><tbody>`;
+  data.data.forEach(e => {
+    html += `<tr>
+      <td>#${e.id}</td><td>${escHtml(e.title)}</td><td>${e.category || '-'}</td>
+      <td>${new Date(e.created_at).toLocaleString()}</td>
+      <td>
+        <button class="btn-sm" onclick="reviewKnowledge(${e.id}, 'approved')" style="color:#34c759;">通过</button>
+        <button class="btn-sm" onclick="reviewKnowledge(${e.id}, 'rejected')" style="color:#ff3b30;">拒绝</button>
+        <button class="btn-sm" onclick="alert('内容:\\n${escHtml(e.content).replace(/'/g, '&#39;')}')">查看内容</button>
+      </td></tr>`;
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+async function reviewKnowledge(id, status) {
+  await api(`/api/knowledge/review/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ review_status: status }),
+  });
+  toast(`知识已${status === 'approved' ? '通过审核' : '拒绝'}`);
+  loadPendingReviews();
+}
+
+// ============ Manager: Dashboard (P8) ============
+function renderDashboard() {
+  return `
+    <div class="card">
+      <h3>系统指标 (Process 8: 汇总)</h3>
+      <button class="btn btn-outline" onclick="loadMetrics()" style="margin-bottom:16px;">刷新指标</button>
+      <div id="metricsDisplay"></div>
+    </div>`;
+}
+
+function renderAllTickets() {
+  return `
+    <div class="card">
+      <h3>全部工单</h3>
+      <button class="btn btn-outline" onclick="loadTickets()" style="margin-bottom:12px;">刷新列表</button>
+      <div id="ticketList"><div class="empty">点击刷新加载工单</div></div>
+    </div>`;
+}
+
 async function loadMetrics() {
-  const res = await fetch(API + '/api/metrics');
-  const data = await res.json();
+  const data = await api('/api/metrics');
   const m = data.data;
   document.getElementById('metricsDisplay').innerHTML = `
     <div class="metrics-grid">
       <div class="metric"><div class="value">${m.total_tickets}</div><div class="label">总工单数</div></div>
+      <div class="metric"><div class="value">${m.escalated_count}</div><div class="label">已升级工单</div></div>
       <div class="metric"><div class="value">${(m.escalation_rate*100).toFixed(1)}%</div><div class="label">升级率</div></div>
       <div class="metric"><div class="value" style="color:var(--green);">${(m.green_rate*100).toFixed(1)}%</div><div class="label">绿色置信度</div></div>
       <div class="metric"><div class="value" style="color:var(--yellow);">${(m.yellow_rate*100).toFixed(1)}%</div><div class="label">黄色置信度</div></div>
       <div class="metric"><div class="value" style="color:var(--red);">${(m.red_rate*100).toFixed(1)}%</div><div class="label">红色置信度</div></div>
-      <div class="metric"><div class="value">${(m.knowledge_base_usage_rate*100).toFixed(0)}%</div><div class="label">知识库使用率</div></div>
+      <div class="metric"><div class="value">${m.d1_doc_count}</div><div class="label">D1 公开文档</div></div>
+      <div class="metric"><div class="value">${m.d2_doc_count}</div><div class="label">D2 内部文档</div></div>
     </div>`;
 }
 
-// --- Knowledge Sync ---
-async function syncKnowledge() {
-  const text = document.getElementById('releaseNoteInput').value.trim();
-  if (!text) return toast('请输入 Release Note 内容 (JSON)', 'error');
-  try {
-    const note = JSON.parse(text);
-    const res = await fetch(API + '/api/knowledge/sync', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(note)
-    });
-    const data = await res.json();
-    document.getElementById('syncResult').innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${data.message} (文档ID: ${data.doc_id})</div>`;
-    toast('知识库同步成功 (Process 3)');
-  } catch(e) {
-    toast('JSON 格式错误', 'error');
-  }
-}
+// ============ Utility ============
+function escHtml(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function copyText(btn) { navigator.clipboard.writeText(btn.dataset.text).then(() => toast('已复制到剪贴板')); }
 
-function escapeHtml(s) {
-  if (!s) return '';
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
-}
-function escapeAttr(s) {
-  if (!s) return '';
-  return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// ============ Init ============
+checkAuth();
 </script>
 </body>
 </html>

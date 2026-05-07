@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+import json
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -11,9 +11,8 @@ from pydantic import BaseModel, Field
 # --- Enums ---
 
 class TicketStatus(str, Enum):
-    OPEN = "open"
+    PENDING = "pending"
     AI_PROCESSING = "ai_processing"
-    PENDING_REVIEW = "pending_review"
     RESOLVED = "resolved"
     ESCALATED = "escalated"
     CLOSED = "closed"
@@ -25,40 +24,127 @@ class ConfidenceLabel(str, Enum):
     RED = "red"
 
 
-class AgentRole(str, Enum):
-    L1_AGENT = "L1_客服"
-    L2_ENGINEER = "L2_研发"
-    MANAGER = "管理层"
-    DOC_TEAM = "文档团队"
+class Role(str, Enum):
+    CS = "cs"
+    RD = "rd"
+    DOC = "doc"
+    MANAGER = "manager"
 
 
-# --- Core Models ---
+class EntryType(str, Enum):
+    SOLUTION = "solution"
+    RELEASE_NOTE = "release_note"
+
+
+class ReviewStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+# --- Auth Models ---
+
+class LoginRequest(BaseModel):
+    role: str
+    username: str
+
+
+# --- D1: AI Knowledge ---
+
+class AIKnowledge(BaseModel):
+    id: Optional[int] = None
+    title: str
+    content: str
+    category: Optional[str] = None
+    keywords: Optional[str] = None
+    review_status: str = "pending"
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
+class KnowledgeSubmit(BaseModel):
+    title: str
+    content: str
+    category: Optional[str] = None
+    keywords: Optional[str] = None
+
+
+class KnowledgeReview(BaseModel):
+    review_status: str  # approved | rejected
+
+
+# --- D2: R&D Knowledge ---
+
+class RDKnowledge(BaseModel):
+    id: Optional[int] = None
+    title: str
+    content: str
+    keywords: Optional[str] = None
+    version: Optional[str] = None
+    release_note: Optional[str] = None
+    source_ticket_id: Optional[int] = None
+    entry_type: str
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
+# --- D3: Ticket ---
+
+class TicketCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    created_by: str = "cs"
+
 
 class Ticket(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    customer_desc: str
-    error_code: Optional[str] = None
-    status: TicketStatus = TicketStatus.OPEN
-    agent_id: str = "agent_xiao_chen"
+    id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    status: str = "pending"
+    ai_suggestion: Optional[str] = None
+    ai_public_refs: Optional[str] = None  # JSON array
+    ai_restricted_hint: bool = False
+    escalated_to_rd: bool = False
+    rd_solution: Optional[str] = None
+    rd_version: Optional[str] = None
+    handling_record: Optional[str] = None  # JSON array
+    created_by: str = "cs"
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
-    sla_deadline: Optional[str] = None
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
+class HandlingRecord(BaseModel):
+    notes: str
+
+
+class EscalationResolve(BaseModel):
+    solution: str
+    version: Optional[str] = None
+
+
+# --- Core AI Models ---
+
+class ChatMessage(BaseModel):
+    role: str  # user | assistant
+    content: str
 
 
 class AIQuery(BaseModel):
-    ticket_id: str
     query_text: str
+    ticket_id: Optional[int] = None
+    conversation_id: Optional[str] = None
+    history: list[ChatMessage] = []
 
 
 class Citation(BaseModel):
     doc_title: str
     doc_version: str
-    section: str
-    snippet: str
+    section: str = ""
+    snippet: str = ""
 
 
 class AIResponse(BaseModel):
     log_id: str
-    ticket_id: str
+    ticket_id: Optional[int] = None
     query_text: str
     answer_text: str
     citations: list[Citation] = []
@@ -67,51 +153,11 @@ class AIResponse(BaseModel):
     is_blocked: bool = False
     block_reason: Optional[str] = None
     escalation_required: bool = False
+    d2_match_found: bool = False
+    d2_hint: Optional[str] = None
 
 
-class Escalation(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    ticket_id: str
-    log_id: Optional[str] = None
-    reason: str
-    from_role: AgentRole
-    to_role: AgentRole = AgentRole.L2_ENGINEER
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
-    resolved: bool = False
-    resolution_notes: Optional[str] = None
-
-
-class Feedback(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    log_id: str
-    agent_id: str
-    is_accurate: bool
-    correction_notes: Optional[str] = None
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
-
-
-class KnowledgeDoc(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    title: str
-    source_type: str  # PDF / GitLab / Excel
-    content: str
-    version: str = "1.0"
-    validity_status: str = "有效"  # 有效 / 过期
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
-
-
-class SystemMetrics(BaseModel):
-    total_tickets: int = 0
-    avg_response_time_seconds: float = 0
-    avg_resolution_time_hours: float = 0
-    escalation_rate: float = 0
-    green_rate: float = 0
-    yellow_rate: float = 0
-    red_rate: float = 0
-    knowledge_base_usage_rate: float = 0
-
-
-# --- Request / Response Helpers ---
+# --- Request / Response Wrappers ---
 
 class QueryResponse(BaseModel):
     success: bool
@@ -129,6 +175,12 @@ class DesensitizeResponse(BaseModel):
     changes: int
 
 
-class MetricsResponse(BaseModel):
-    success: bool
-    data: SystemMetrics
+class SystemMetrics(BaseModel):
+    total_tickets: int = 0
+    escalated_count: int = 0
+    escalation_rate: float = 0
+    green_rate: float = 0
+    yellow_rate: float = 0
+    red_rate: float = 0
+    d1_doc_count: int = 0
+    d2_doc_count: int = 0

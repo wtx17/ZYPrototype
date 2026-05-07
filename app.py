@@ -1,46 +1,48 @@
-"""智云科技 AI 知识库系统 — FastAPI 主应用
+"""智云科技 AI 知识库系统 — FastAPI 主应用 (DFD v2 refactor)
 
-Matches DFD processes:
-  POST /api/query           → P1 AI处理
-  POST /api/query/{id}/feedback → P2 知识沉淀
-  POST /api/knowledge/sync  → P3 发布 Release Notes
-  POST /api/tickets/{id}/escalate → P4 工单升级
-  POST /api/escalations/{id}/resolve → P5 反馈升级工单
-  POST /api/desensitize     → P6 脱敏处理
-  GET  /api/tickets         → P7 记录工单处理情况
-  GET  /api/metrics         → P8 汇总系统指标
+DFD process mapping:
+  POST /api/query                    → P1  AI处理
+  POST /api/knowledge/rd             → P2  沉淀知识
+  POST /api/knowledge/release-notes  → P3  发布Release notes
+  POST /api/tickets/{id}/escalate    → P4  升级工单
+  POST /api/escalations/{id}/resolve → P5  反馈升级工单
+  POST /api/knowledge/submit         → P6  脱敏、审查 (提交)
+  POST /api/knowledge/review/{id}    → P6  脱敏、审查 (审核)
+  POST /api/tickets/{id}/handling    → P7  记录工单处理情况
+  GET  /api/metrics                  → P8  汇总
 """
 
 from __future__ import annotations
 
+import json
 import logging
-import uuid
+import os
 from datetime import datetime
 
-# App-level debug logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
 )
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from config import SQLITE_PATH, CHROMA_PERSIST_DIR
 from models import (
-    Ticket,
+    TicketCreate,
+    TicketStatus,
     AIQuery,
     AIResponse,
-    Escalation,
-    Feedback,
+    LoginRequest,
+    KnowledgeSubmit,
+    KnowledgeReview,
+    HandlingRecord,
+    EscalationResolve,
     DesensitizeRequest,
     DesensitizeResponse,
-    MetricsResponse,
     SystemMetrics,
-    TicketStatus,
-    AgentRole,
     QueryResponse,
 )
 from database import (
@@ -48,21 +50,28 @@ from database import (
     get_ticket,
     list_tickets,
     update_ticket_status,
-    insert_ai_log,
-    get_ai_logs_for_ticket,
-    insert_escalation,
-    resolve_escalation,
-    insert_feedback,
+    update_ticket_ai_response,
+    escalate_ticket as db_escalate_ticket,
+    resolve_ticket_escalation,
+    add_handling_record,
+    insert_ai_knowledge,
+    insert_rd_knowledge,
+    list_ai_knowledge,
+    list_approved_ai_knowledge,
+    list_pending_ai_knowledge,
+    update_ai_knowledge_review,
+    get_ai_knowledge,
+    list_rd_knowledge,
     get_metrics,
 )
 from agent import query_ai
 from desensitizer import desensitize
-from knowledge_store import sync_from_gitlab
+from knowledge_store import add_to_ai_knowledge as chroma_add_ai, add_to_rd_knowledge as chroma_add_rd
+from auth import create_session, destroy_session, get_current_session, require_role
 
-app = FastAPI(title="智云科技 AI 知识库系统", version="0.1.0")
+app = FastAPI(title="智云科技 AI 知识库系统", version="0.2.0")
 
 # --- Static files ---
-import os
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -76,154 +85,311 @@ async def root():
     return {"message": "智云科技 AI 知识库系统 API", "docs": "/docs"}
 
 
-# --- Ticket CRUD ---
+# ==================== Auth ====================
 
-@app.post("/api/tickets")
-async def create_ticket(ticket: Ticket):
-    """Create a new support ticket."""
-    data = ticket.model_dump()
-    insert_ticket(data)
-    return {"success": True, "ticket_id": data["id"]}
-
-
-@app.get("/api/tickets")
-async def get_tickets():
-    """List all tickets (Process 7: 记录工单处理情况)."""
-    tickets = list_tickets()
-    return {"success": True, "data": tickets, "count": len(tickets)}
+@app.post("/api/auth/login")
+async def login(data: LoginRequest, response: Response):
+    if data.role not in ("cs", "rd", "doc", "manager"):
+        raise HTTPException(status_code=400, detail="无效的角色")
+    session_id = create_session(data.role, data.username)
+    response.set_cookie(key="session_id", value=session_id, httponly=True, max_age=86400)
+    return {"success": True, "role": data.role, "username": data.username}
 
 
-@app.get("/api/tickets/{ticket_id}")
-async def get_ticket_detail(ticket_id: str):
-    """Get a single ticket with its AI interaction history."""
-    ticket = get_ticket(ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="工单不存在")
-    logs = get_ai_logs_for_ticket(ticket_id)
-    ticket["ai_logs"] = logs
-    return {"success": True, "data": ticket}
+@app.get("/api/auth/me")
+async def me(request: Request):
+    session = await get_current_session(request)
+    if not session:
+        return {"authenticated": False}
+    return {"authenticated": True, "role": session["role"], "username": session["username"]}
 
 
-# --- Core AI Query (Process 1: AI处理) ---
+@app.post("/api/auth/logout")
+async def logout(request: Request, response: Response):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        destroy_session(session_id)
+    response.delete_cookie("session_id")
+    return {"success": True}
+
+
+# ==================== P1: AI处理 ====================
 
 @app.post("/api/query")
-async def ai_query(query: AIQuery):
-    """Process a customer query through the AI pipeline (Process 1)."""
-    ticket = get_ticket(query.ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="工单不存在")
+async def ai_query(query: AIQuery, request: Request):
+    """CS submits a customer query through the AI pipeline.
 
-    # Update ticket status
-    update_ticket_status(query.ticket_id, TicketStatus.AI_PROCESSING.value)
+    This is a standalone query function. It does NOT create or update tickets.
+    CS can manually create tickets from query results if needed.
+    """
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    role = session["role"]
 
-    # Run RAG pipeline (LLM always invoked)
-    response: AIResponse = query_ai(query.query_text, query.ticket_id)
+    # Convert ChatMessage objects to dicts for agent
+    history = [{"role": h.role, "content": h.content} for h in query.history] if query.history else []
 
-    # Persist AI log
-    log_data = {
-        "id": response.log_id,
-        "ticket_id": response.ticket_id,
-        "query_text": response.query_text,
-        "answer_text": response.answer_text,
-        "citations": [c.model_dump() for c in response.citations],
-        "confidence_score": response.confidence_score,
-        "confidence_label": response.confidence_label.value,
-        "is_blocked": 1 if response.is_blocked else 0,
-        "block_reason": response.block_reason,
-        "escalation_required": 1 if response.escalation_required else 0,
-        "created_at": datetime.now().isoformat(),
-    }
-    insert_ai_log(log_data)
+    response: AIResponse = query_ai(
+        query.query_text,
+        ticket_id=query.ticket_id,
+        role=role,
+        history=history,
+    )
 
-    # Always set to pending_review — agent decides whether to escalate
-    update_ticket_status(query.ticket_id, TicketStatus.PENDING_REVIEW.value)
+    # If a ticket_id was provided, persist AI result to that ticket
+    if query.ticket_id:
+        ticket = get_ticket(query.ticket_id)
+        if ticket:
+            update_ticket_status(query.ticket_id, TicketStatus.AI_PROCESSING.value)
+            public_refs = json.dumps([c.model_dump() for c in response.citations], ensure_ascii=False)
+            update_ticket_ai_response(
+                query.ticket_id, response.answer_text, public_refs, response.d2_match_found,
+            )
+            if response.escalation_required and not ticket.get("escalated_to_rd"):
+                reason = response.d2_hint or "AI 建议升级"
+                db_escalate_ticket(query.ticket_id, reason)
+            update_ticket_status(query.ticket_id, TicketStatus.RESOLVED.value)
 
     return QueryResponse(success=True, data=response)
 
 
-# --- Feedback (Process 2: 知识沉淀) ---
+# ==================== P2: 沉淀知识 ====================
 
-@app.post("/api/query/{log_id}/feedback")
-async def submit_feedback(log_id: str, feedback: Feedback):
-    """Submit feedback on an AI answer for knowledge improvement (Process 2)."""
-    feedback.id = str(uuid.uuid4())[:8]
-    feedback.log_id = log_id
-    feedback.created_at = datetime.now().isoformat()
-    insert_feedback(feedback.model_dump())
-    return {"success": True, "feedback_id": feedback.id}
+@app.post("/api/knowledge/rd")
+async def submit_rd_knowledge(data: dict, request: Request):
+    """R&D submits solution knowledge to D2 (Process 2)."""
+    session = await require_role(request, ["rd"])
+
+    entry = {
+        "title": data["title"],
+        "content": data["content"],
+        "keywords": data.get("keywords", ""),
+        "version": data.get("version", ""),
+        "release_note": data.get("release_note"),
+        "source_ticket_id": data.get("source_ticket_id"),
+        "entry_type": data.get("entry_type", "solution"),
+        "created_at": datetime.now().isoformat(),
+    }
+    db_id = insert_rd_knowledge(entry)
+
+    # Also add to ChromaDB D2 collection (best-effort)
+    chroma_msg = ""
+    try:
+        chroma_add_rd(
+            title=data["title"], content=data["content"],
+            entry_type=entry["entry_type"], version=entry["version"],
+            keywords=entry["keywords"], source_ticket_id=entry["source_ticket_id"],
+            release_note=entry["release_note"],
+        )
+    except Exception as e:
+        chroma_msg = f" (向量存储同步失败: {e})"
+
+    return {"success": True, "id": db_id, "message": "知识已沉淀至研发知识库 (D2)" + chroma_msg}
 
 
-# --- GitLab Sync (Process 3: 发布 Release Notes) ---
+# ==================== P3: 发布Release Notes ====================
 
-@app.post("/api/knowledge/sync")
-async def sync_release_note(note: dict):
-    """Sync a new release note from GitLab into the knowledge base (Process 3)."""
-    doc_id = sync_from_gitlab(note)
-    return {"success": True, "doc_id": doc_id, "message": "Release note 已同步至知识库"}
+@app.post("/api/knowledge/release-notes")
+async def publish_release_notes(data: dict, request: Request):
+    """R&D publishes release notes to D2 (Process 3)."""
+    session = await require_role(request, ["rd"])
+
+    entry = {
+        "title": data["title"],
+        "content": data["content"],
+        "keywords": data.get("keywords", ""),
+        "version": data.get("version", ""),
+        "release_note": data.get("release_note", ""),
+        "source_ticket_id": data.get("source_ticket_id"),
+        "entry_type": "release_note",
+        "created_at": datetime.now().isoformat(),
+    }
+    db_id = insert_rd_knowledge(entry)
+
+    chroma_msg = ""
+    try:
+        chroma_add_rd(
+            title=data["title"], content=data["content"],
+            entry_type="release_note", version=entry["version"],
+            keywords=entry["keywords"], release_note=entry["release_note"],
+        )
+    except Exception as e:
+        chroma_msg = f" (向量存储同步失败: {e})"
+
+    return {"success": True, "id": db_id, "message": "Release note 已发布至研发知识库 (D2)" + chroma_msg}
 
 
-# --- Escalation (Process 4: 工单升级) ---
+# ==================== P4: 升级工单 ====================
 
 @app.post("/api/tickets/{ticket_id}/escalate")
-async def escalate_ticket(ticket_id: str, reason: str = "客服主动升级"):
-    """Escalate a ticket to L2 R&D (Process 4)."""
+async def escalate_ticket(ticket_id: int, request: Request, data: dict = None):
+    """CS escalates a ticket to R&D (Process 4)."""
+    session = await require_role(request, ["cs"])
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
+    reason = (data or {}).get("reason", "客服主动升级")
+    ok = db_escalate_ticket(ticket_id, reason)
+    return {"success": ok, "message": "工单已升级至二线研发"}
 
-    esc = {
-        "id": str(uuid.uuid4())[:8],
-        "ticket_id": ticket_id,
-        "log_id": None,
-        "reason": reason,
-        "from_role": AgentRole.L1_AGENT.value,
-        "to_role": AgentRole.L2_ENGINEER.value,
+
+# ==================== P5: 反馈升级工单 ====================
+
+@app.post("/api/escalations/{ticket_id}/resolve")
+async def resolve_escalation(ticket_id: int, data: EscalationResolve, request: Request):
+    """R&D resolves an escalated ticket (Process 5)."""
+    session = await require_role(request, ["rd"])
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    if not ticket.get("escalated_to_rd"):
+        raise HTTPException(status_code=400, detail="该工单未被升级")
+    ok = resolve_ticket_escalation(ticket_id, data.solution, data.version)
+    return {"success": ok, "message": "升级工单已解决"}
+
+
+# ==================== P6: 脱敏、审查 ====================
+
+@app.post("/api/knowledge/submit")
+async def submit_knowledge(data: KnowledgeSubmit, request: Request):
+    """Doc team submits knowledge for review. Auto-desensitized (Process 6)."""
+    session = await require_role(request, ["doc"])
+
+    cleaned, changes = desensitize(data.content)
+
+    entry = {
+        "title": data.title,
+        "content": cleaned,
+        "category": data.category or "",
+        "keywords": data.keywords or "",
+        "review_status": "pending",
         "created_at": datetime.now().isoformat(),
-        "resolved": 0,
-        "resolution_notes": None,
+        "updated_at": datetime.now().isoformat(),
     }
-    insert_escalation(esc)
-    update_ticket_status(ticket_id, TicketStatus.ESCALATED.value)
-    return {"success": True, "escalation_id": esc["id"]}
+    db_id = insert_ai_knowledge(entry)
+    return {"success": True, "id": db_id, "desensitized_changes": changes,
+            "message": "知识已提交，等待审核 (D1)"}
 
 
-# --- Escalation Resolution (Process 5: 反馈升级工单) ---
+@app.post("/api/knowledge/review/{knowledge_id}")
+async def review_knowledge(knowledge_id: int, data: KnowledgeReview, request: Request):
+    """Doc team reviews pending knowledge. Approved → D1 ChromaDB (Process 6)."""
+    session = await require_role(request, ["doc"])
 
-@app.post("/api/escalations/{esc_id}/resolve")
-async def resolve_escalation_endpoint(esc_id: str, resolution: dict):
-    """Resolve an escalated ticket with solution notes (Process 5)."""
-    notes = resolution.get("notes", "")
-    ok = resolve_escalation(esc_id, notes)
+    entry = get_ai_knowledge(knowledge_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="知识条目不存在")
+
+    ok = update_ai_knowledge_review(knowledge_id, data.review_status)
     if not ok:
-        raise HTTPException(status_code=404, detail="升级记录不存在")
-    # Update the linked ticket
-    # In a real system we'd look up the ticket_id from the escalation record
-    return {"success": True, "message": "升级工单已解决"}
+        raise HTTPException(status_code=500, detail="审核更新失败")
+
+    if data.review_status == "approved":
+        try:
+            chroma_add_ai(
+                title=entry["title"], content=entry["content"],
+                category=entry.get("category", ""), keywords=entry.get("keywords", ""),
+            )
+        except Exception as e:
+            pass  # vector sync is best-effort; SQL already updated
+
+    return {"success": True, "message": f"知识已{data.review_status}"}
 
 
-# --- Desensitization (Process 6: 脱敏处理) ---
+@app.get("/api/knowledge/pending")
+async def get_pending_knowledge(request: Request):
+    """List pending-review D1 entries (Doc only)."""
+    await require_role(request, ["doc"])
+    items = list_pending_ai_knowledge()
+    return {"success": True, "data": items}
+
+
+@app.get("/api/knowledge/ai")
+async def get_ai_knowledge_list(request: Request):
+    """List approved D1 entries (all roles)."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    items = list_approved_ai_knowledge()
+    return {"success": True, "data": items}
+
+
+@app.get("/api/knowledge/rd")
+async def get_rd_knowledge_list(request: Request):
+    """List D2 entries (RD/Doc only)."""
+    await require_role(request, ["rd", "doc"])
+    items = list_rd_knowledge()
+    return {"success": True, "data": items}
+
+
+# ==================== P7: 记录工单处理情况 ====================
+
+@app.get("/api/tickets")
+async def get_tickets(request: Request):
+    """List tickets with role-based filtering (Process 7)."""
+    session = await require_role(request, ["cs", "rd", "manager"])
+
+    if session["role"] == "rd":
+        tickets = list_tickets(escalated_only=True)
+    elif session["role"] == "cs":
+        tickets = list_tickets(created_by="cs")
+    else:
+        tickets = list_tickets()
+
+    return {"success": True, "data": tickets, "count": len(tickets)}
+
+
+@app.get("/api/tickets/{ticket_id}")
+async def get_ticket_detail(ticket_id: int, request: Request):
+    """Get ticket detail (Process 7)."""
+    await require_role(request, ["cs", "rd", "manager"])
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    return {"success": True, "data": ticket}
+
+
+@app.post("/api/tickets")
+async def create_ticket(ticket: TicketCreate):
+    """Create a new support ticket."""
+    data = {
+        "title": ticket.title,
+        "description": ticket.description or "",
+        "status": "pending",
+        "created_by": ticket.created_by,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    tid = insert_ticket(data)
+    return {"success": True, "ticket_id": tid}
+
+
+@app.post("/api/tickets/{ticket_id}/handling")
+async def record_handling(ticket_id: int, data: HandlingRecord, request: Request):
+    """CS records handling notes (Process 7)."""
+    session = await require_role(request, ["cs"])
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    ok = add_handling_record(ticket_id, data.notes)
+    return {"success": ok, "message": "处理记录已保存"}
+
+
+# ==================== P8: 汇总 ====================
+
+@app.get("/api/metrics")
+async def system_metrics(request: Request):
+    """System metrics dashboard (Process 8)."""
+    await require_role(request, ["manager"])
+    data = get_metrics()
+    return {"success": True, "data": SystemMetrics(**data)}
+
+
+# ==================== Utility ====================
 
 @app.post("/api/desensitize")
 async def desensitize_text(req: DesensitizeRequest):
-    """Desensitize text by removing PII and credentials (Process 6)."""
+    """Test desensitization (Process 6 utility)."""
     cleaned, changes = desensitize(req.text)
-    return DesensitizeResponse(
-        original=req.text,
-        desensitized=cleaned,
-        changes=changes,
-    )
+    return DesensitizeResponse(original=req.text, desensitized=cleaned, changes=changes)
 
-
-# --- Metrics (Process 7+8: 汇总系统指标) ---
-
-@app.get("/api/metrics")
-async def system_metrics():
-    """Get system performance metrics dashboard (Process 8)."""
-    data = get_metrics()
-    return MetricsResponse(success=True, data=SystemMetrics(**data))
-
-
-# --- Health check ---
 
 @app.get("/api/health")
 async def health():

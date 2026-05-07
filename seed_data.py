@@ -1,10 +1,10 @@
-"""Sample knowledge base entries derived from the interview & JAD report."""
+"""Seed data for D1 (public) and D2 (restricted) knowledge bases."""
 
-KNOWLEDGE_ENTRIES = [
+AI_KNOWLEDGE_ENTRIES = [
     {
         "title": "BGP 震荡排查标准流程",
-        "source_type": "PDF",
-        "version": "v3.2",
+        "category": "网络故障排查",
+        "keywords": "BGP,震荡,邻居,路由器,MTU",
         "content": (
             "BGP 震荡排查标准流程：\n"
             "1. 登录核心路由器，执行 show bgp summary 检查邻居状态。重点关注 State 列是否为 Established，"
@@ -20,8 +20,8 @@ KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "ERR-5043 数据库连接池耗尽 — 标准处理步骤",
-        "source_type": "GitLab",
-        "version": "v5.1.0",
+        "category": "故障排查",
+        "keywords": "ERR-5043,数据库,连接池,慢查询",
         "content": (
             "ERR-5043：数据库连接池耗尽 (Connection Pool Exhausted)\n"
             "触发条件：应用服务器数据库连接池使用率达到 100%，新请求无法获取连接。\n"
@@ -37,8 +37,8 @@ KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "常见错误码速查表",
-        "source_type": "PDF",
-        "version": "v2.5",
+        "category": "参考文档",
+        "keywords": "错误码,ERR,速查",
         "content": (
             "常见错误码速查表：\n"
             "ERR-1024：API 密钥无效或已过期 → 检查密钥是否在有效期内，确认未达到调用次数上限。\n"
@@ -50,39 +50,9 @@ KNOWLEDGE_ENTRIES = [
         ),
     },
     {
-        "title": "内部缓存刷新 API 使用说明",
-        "source_type": "GitLab",
-        "version": "v1.8.0",
-        "content": (
-            "内部缓存刷新 API：POST /internal/api/v1/cache/refresh\n"
-            "用途：当知识库内容更新后，调用此 API 刷新 Redis 缓存层，使新内容立即生效。\n"
-            "权限要求：需要 Service Account Token（联系王工获取）。\n"
-            "调用示例：curl -X POST https://internal-api.zycloud.com/internal/api/v1/cache/refresh "
-            "-H 'Authorization: Bearer <service_token>' -H 'Content-Type: application/json' "
-            "-d '{\"scope\": \"knowledge_base\", \"force\": false}'\n"
-            "注意：force=true 会清空全部缓存并重新预热，耗时约 2-5 分钟，仅在紧急修复时使用。\n"
-            "安全说明：此 API 需要通过安全审查后方可授权给支持团队使用，目前仅研发团队有权限。"
-        ),
-    },
-    {
-        "title": "Release Notes v5.1.0 — 数据库连接池优化",
-        "source_type": "GitLab",
-        "version": "v5.1.0",
-        "content": (
-            "Release Notes v5.1.0 (2026-03-15)\n"
-            "变更类型：性能优化\n"
-            "变更内容：\n"
-            "1. 数据库连接池从固定大小改为动态调整，默认 min=5 / max=20，空闲 10 分钟后自动收缩。\n"
-            "2. 新增连接池监控指标导出（Prometheus endpoint: /metrics/db-pool），可对接 Grafana 告警。\n"
-            "3. 修复了之前版本中连接泄漏问题：事务未正确关闭导致连接无法归还池中。\n"
-            "升级影响：需要更新 application.yml 配置文件，移除旧的 db.pool.fixed-size 参数。\n"
-            "回滚方案：若升级后出现连接数不足，可临时设置环境变量 DB_POOL_MIN=10, DB_POOL_MAX=30 覆盖默认配置。"
-        ),
-    },
-    {
         "title": "客户问题分类与响应模板",
-        "source_type": "Excel",
-        "version": "v1.2",
+        "category": "客服规范",
+        "keywords": "分类,模板,回复,客服",
         "content": (
             "客户问题分类与响应模板：\n"
             "A 类 — 查询类（约 40%）：客户询问功能使用方法、配置参数含义、API 文档位置等。\n"
@@ -100,8 +70,8 @@ KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "服务 SLA 承诺与违约条款",
-        "source_type": "PDF",
-        "version": "v2.0",
+        "category": "参考文档",
+        "keywords": "SLA,承诺,违约,响应时间",
         "content": (
             "智云科技客户服务 SLA 承诺：\n"
             "响应时间：P0 级故障 ≤ 1 小时 / P1 级故障 ≤ 4 小时 / P2 级问题 ≤ 8 小时 / P3 级咨询 ≤ 24 小时。\n"
@@ -115,23 +85,9 @@ KNOWLEDGE_ENTRIES = [
         ),
     },
     {
-        "title": "知识库文档版本管理规范",
-        "source_type": "GitLab",
-        "version": "v2.1.0",
-        "content": (
-            "知识库文档版本管理规范：\n"
-            "1. 所有公开发布的技术手册必须遵循语义化版本号 (SemVer)：主版本.次版本.修订号。\n"
-            "2. 文档更新必须通过 GitLab Merge Request 流程，至少需要一位 Reviewer 审批。\n"
-            "3. 旧版本文档应标记为「过期」而非删除，保留历史版本至少 12 个月。\n"
-            "4. Release Notes 必须在每个版本发布前 24 小时完成，并由文档团队审核术语一致性。\n"
-            "5. 紧急修复类文档（如安全补丁说明）走快速发布通道，审批时间 ≤ 4 小时。\n"
-            "6. 文件名规范：禁止使用 'final'、'最终版' 等模糊后缀，必须以产品名+版本号命名。"
-        ),
-    },
-    {
         "title": "工单升级判断标准",
-        "source_type": "PDF",
-        "version": "v2.0",
+        "category": "客服规范",
+        "keywords": "升级,工单,二线,判断标准",
         "content": (
             "工单升级判断标准（一线 → 二线研发）：\n"
             "必须升级的情况：\n"
@@ -148,8 +104,8 @@ KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "敏感信息脱敏处理规范",
-        "source_type": "PDF",
-        "version": "v1.5",
+        "category": "安全规范",
+        "keywords": "脱敏,敏感信息,安全,正则",
         "content": (
             "敏感信息脱敏处理规范：\n"
             "脱敏范围：客户工单中的以下信息在进入 AI 知识库前必须自动脱敏：\n"
@@ -160,6 +116,62 @@ KNOWLEDGE_ENTRIES = [
             "5. 个人身份信息（手机号、身份证号、邮箱地址）。\n"
             "脱敏方式：正则匹配 + 占位符替换（如 [REDACTED_IP]），保留数据类型标识以便人工审核。\n"
             "合规要求：脱敏后的数据仍受数据保护政策约束，审计日志需记录脱敏操作的时间与范围。"
+        ),
+    },
+]
+
+RD_KNOWLEDGE_ENTRIES = [
+    {
+        "title": "内部缓存刷新 API 使用说明",
+        "version": "v1.8.0",
+        "keywords": "缓存,API,Redis,内部",
+        "entry_type": "solution",
+        "release_note": None,
+        "source_ticket_id": None,
+        "content": (
+            "内部缓存刷新 API：POST /internal/api/v1/cache/refresh\n"
+            "用途：当知识库内容更新后，调用此 API 刷新 Redis 缓存层，使新内容立即生效。\n"
+            "权限要求：需要 Service Account Token（联系王工获取）。\n"
+            "调用示例：curl -X POST https://internal-api.zycloud.com/internal/api/v1/cache/refresh "
+            "-H 'Authorization: Bearer <service_token>' -H 'Content-Type: application/json' "
+            "-d '{\"scope\": \"knowledge_base\", \"force\": false}'\n"
+            "注意：force=true 会清空全部缓存并重新预热，耗时约 2-5 分钟，仅在紧急修复时使用。\n"
+            "安全说明：此 API 需要通过安全审查后方可授权给支持团队使用，目前仅研发团队有权限。"
+        ),
+    },
+    {
+        "title": "Release Notes v5.1.0 — 数据库连接池优化",
+        "version": "v5.1.0",
+        "keywords": "Release Notes,数据库,连接池,优化",
+        "entry_type": "release_note",
+        "release_note": "数据库连接池从固定大小改为动态调整，新增连接池监控指标",
+        "source_ticket_id": None,
+        "content": (
+            "Release Notes v5.1.0 (2026-03-15)\n"
+            "变更类型：性能优化\n"
+            "变更内容：\n"
+            "1. 数据库连接池从固定大小改为动态调整，默认 min=5 / max=20，空闲 10 分钟后自动收缩。\n"
+            "2. 新增连接池监控指标导出（Prometheus endpoint: /metrics/db-pool），可对接 Grafana 告警。\n"
+            "3. 修复了之前版本中连接泄漏问题：事务未正确关闭导致连接无法归还池中。\n"
+            "升级影响：需要更新 application.yml 配置文件，移除旧的 db.pool.fixed-size 参数。\n"
+            "回滚方案：若升级后出现连接数不足，可临时设置环境变量 DB_POOL_MIN=10, DB_POOL_MAX=30 覆盖默认配置。"
+        ),
+    },
+    {
+        "title": "知识库文档版本管理规范",
+        "version": "v2.1.0",
+        "keywords": "版本管理,文档,SemVer,规范",
+        "entry_type": "solution",
+        "release_note": None,
+        "source_ticket_id": None,
+        "content": (
+            "知识库文档版本管理规范：\n"
+            "1. 所有公开发布的技术手册必须遵循语义化版本号 (SemVer)：主版本.次版本.修订号。\n"
+            "2. 文档更新必须通过 GitLab Merge Request 流程，至少需要一位 Reviewer 审批。\n"
+            "3. 旧版本文档应标记为「过期」而非删除，保留历史版本至少 12 个月。\n"
+            "4. Release Notes 必须在每个版本发布前 24 小时完成，并由文档团队审核术语一致性。\n"
+            "5. 紧急修复类文档（如安全补丁说明）走快速发布通道，审批时间 ≤ 4 小时。\n"
+            "6. 文件名规范：禁止使用 'final'、'最终版' 等模糊后缀，必须以产品名+版本号命名。"
         ),
     },
 ]
