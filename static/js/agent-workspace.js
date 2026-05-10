@@ -52,7 +52,7 @@ export function renderSessionWorkspace() {
   const ticket = state.activeSession;
   if (!ticket) return '<div class="empty">请选择一个会话</div>';
 
-  const leftWidth = state.aiPanelVisible ? '30%' : '100%';
+  const leftWidth = state.aiPanelVisible ? '40%' : '100%';
   const csAccepted = ticket.assigned_cs;
   const rdAccepted = ticket.assigned_rd;
   const canSend = (state.role === 'cs' && csAccepted) || (state.role === 'rd' && rdAccepted);
@@ -60,22 +60,34 @@ export function renderSessionWorkspace() {
   return `
     <div style="display:flex;height:calc(100vh - 200px);gap:16px;">
       <div style="flex:0 0 ${leftWidth};display:flex;flex-direction:column;transition:flex 0.3s;min-width:0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
-          <span class="status-tag ${ticket.status || 'pending'}">${ticket.status || 'pending'}</span>
-          <div style="display:flex;gap:8px;">
-            ${state.role === 'cs' && !csAccepted ? `
-              <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
-            ` : ''}
-            ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
-              <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
-            ` : ''}
-            ${state.role === 'rd' && !rdAccepted ? `
-              <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
-            ` : ''}
-            <button class="btn btn-outline btn-sm" onclick="app.askAIDirectly(${ticket.id})">询问 AI 助手</button>
-            ${canSend ? renderEndServiceButton(ticket.id) : ''}
-          </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;min-height:36px;">
+          ${state.aiPanelVisible ? `
+            <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
+            <div>
+              ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
+                <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
+              ` : ''}
+              ${state.role === 'rd' && !rdAccepted ? `
+                <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
+              ` : ''}
+            </div>
+          ` : `
+            <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
+            <span class="status-tag ${ticket.status || 'pending'}">${ticket.status || 'pending'}</span>
+            <div style="display:flex;gap:8px;">
+              ${state.role === 'cs' && !csAccepted ? `
+                <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
+              ` : ''}
+              ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
+                <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
+              ` : ''}
+              ${state.role === 'rd' && !rdAccepted ? `
+                <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
+              ` : ''}
+              <button class="btn btn-outline btn-sm" onclick="app.askAIDirectly(${ticket.id})">询问 AI 助手</button>
+              ${canSend ? renderEndServiceButton(ticket.id) : ''}
+            </div>
+          `}
         </div>
         <div id="sessionChatMessages" style="flex:1;overflow-y:auto;padding:8px;background:rgba(255,255,255,0.3);border-radius:12px;margin-bottom:8px;">
           ${renderMessages(state.sessionMessages || [])}
