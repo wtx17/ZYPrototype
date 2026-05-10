@@ -32,5 +32,14 @@ export async function api(path, opts = {}) {
     throw new Error('权限不足');
   }
 
-  return response.json();
+  // Handle non-JSON responses gracefully
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    if (!response.ok) {
+      throw new Error(`服务器错误 (${response.status}): ${text.substring(0, 200)}`);
+    }
+    throw new Error('响应解析失败: ' + text.substring(0, 200));
+  }
 }

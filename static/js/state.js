@@ -11,6 +11,8 @@ export const state = {
   sessionMessages: [],
   aiPanelVisible: false,
   aiQueryResult: null,
+  aiMessages: [],
+  aiLoading: false,
 };
 
 export function resetChatState() {

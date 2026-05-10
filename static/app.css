@@ -771,3 +771,113 @@ tr:last-child td {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ==================== Hover Ask Button ==================== */
+
+.msg-hoverable .msg-ask-btn {
+  display: none;
+  margin-top: 4px;
+}
+
+.msg-hoverable:hover .msg-ask-btn {
+  display: block;
+}
+
+/* ==================== AI Dialog ==================== */
+
+.ai-dialog {
+  flex: 0 0 70%;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255,255,255,0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 16px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.ai-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+
+.ai-dialog-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ai-dialog-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: rgba(245,245,247,0.5);
+}
+
+.ai-dialog-input {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.4);
+  flex-shrink: 0;
+  align-items: flex-end;
+}
+
+.ai-dialog-input textarea {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 8px;
+  font-size: 14px;
+  resize: none;
+  font-family: inherit;
+  outline: none;
+  background: rgba(255,255,255,0.8);
+}
+
+.ai-dialog-input textarea:focus {
+  border-color: var(--primary);
+}
+
+.ai-citations {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  font-size: 12px;
+}
+
+.ai-cite-item {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.ai-confidence {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ==================== Typing Dots ==================== */
+
+.typing-dots::after {
+  content: '';
+  animation: dots 1.5s steps(3, end) infinite;
+}
+
+@keyframes dots {
+  0%   { content: ''; }
+  33%  { content: '.'; }
+  66%  { content: '..'; }
+  100% { content: '...'; }
+}

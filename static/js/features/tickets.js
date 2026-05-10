@@ -53,8 +53,8 @@ export async function loadTickets() {
       <td>${formatDate(ticket.created_at)}</td>
       <td>
         <button class="btn-sm" onclick="app.showTicketDetail(${ticket.id})">详情</button>
-        ${canEscalate ? `<button class="btn-sm" onclick="app.doEscalate(${ticket.id})">升级</button>` : ''}
-        ${canRecord ? `<button class="btn-sm" onclick="app.showHandlingForm(${ticket.id})">记录处理</button>` : ''}
+        ${state.role === 'cs' && canEscalate ? `<button class="btn-sm" onclick="app.doEscalate(${ticket.id})">升级</button>` : ''}
+        ${state.role === 'cs' && canRecord ? `<button class="btn-sm" onclick="app.showHandlingForm(${ticket.id})">记录处理</button>` : ''}
       </td>
     </tr>`;
   });

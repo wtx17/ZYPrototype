@@ -60,6 +60,10 @@ function handleMessage(data) {
       ticketId = payload.ticket_id;
       break;
 
+    case 'ticket_assigned':
+      ticketId = payload.ticket_id;
+      break;
+
     case 'system_message':
       addSystemMessage(payload.content);
       break;
@@ -108,7 +112,7 @@ function setStatus(text, cls) {
 export async function sendMessage() {
   const input = document.getElementById('messageInput');
   const text = input.value.trim();
-  if (!text || !ws || ws.readyState !== WebSocket.OPEN || !ticketId) return;
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
 
   addMessage('customer', text);
   input.value = '';

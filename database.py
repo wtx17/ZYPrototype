@@ -333,6 +333,16 @@ def assign_ticket_cs(ticket_id: int, cs_agent: str) -> bool:
     return cur.rowcount > 0
 
 
+def clear_ticket_cs(ticket_id: int) -> bool:
+    c = get_conn()
+    cur = c.execute(
+        "UPDATE tickets SET assigned_cs = NULL, updated_at = datetime('now') WHERE id = ?",
+        (ticket_id,),
+    )
+    _conn.commit()
+    return cur.rowcount > 0
+
+
 def assign_ticket_rd(ticket_id: int, rd_agent: str) -> bool:
     c = get_conn()
     cur = c.execute(
@@ -369,6 +379,7 @@ def list_active_tickets_for_agent(agent_name: str, role: str) -> list[dict]:
     if role == "cs":
         rows = c.execute(
             "SELECT * FROM tickets WHERE status != 'closed' AND service_ended = 0"
+            " AND escalated_to_rd = 0"
             " AND (assigned_cs = ? OR assigned_cs IS NULL OR assigned_cs = '')"
             " ORDER BY updated_at DESC",
             (agent_name,),

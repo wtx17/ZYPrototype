@@ -1,5 +1,5 @@
 export const roleTabs = {
-  cs: ['sessions', 'tickets', 'desensitize'],
+  cs: ['sessions', 'desensitize'],
   rd: ['escalations', 'submit-solution', 'release-notes', 'rd-knowledge'],
   doc: ['submit-knowledge', 'review-knowledge'],
   manager: ['dashboard', 'all-tickets'],

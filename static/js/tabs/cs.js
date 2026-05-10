@@ -49,9 +49,10 @@ export async function initCSSessions() {
       state.activeSessionId = null;
       state.activeSession = null;
       state.aiPanelVisible = false;
+      state.aiMessages = [];
     }
     loadAgentSessions();
-    if (window.app) window.app.switchTab('sessions');
+    if (window.app) window.app.renderApp();
   });
 
   setHandler('ticket_closed', (payload) => {
@@ -61,26 +62,7 @@ export async function initCSSessions() {
       state.aiPanelVisible = false;
     }
     loadAgentSessions();
-    if (window.app) window.app.switchTab('sessions');
-  });
-
-  setHandler('ai_response', (payload) => {
-    state.aiQueryResult = {
-      answer_text: payload.answer_text,
-      confidence_score: payload.confidence_score,
-      confidence_label: payload.confidence_label,
-      citations: payload.citations,
-      d2_match_found: payload.d2_match_found,
-      d2_hint: payload.d2_hint,
-      escalation_required: payload.escalation_required,
-      query_text: payload.query_text,
-    };
-    // Auto-fill the AI answer into the input box
-    const input = document.getElementById('sessionReplyInput');
-    if (input && payload.answer_text) {
-      input.value = payload.answer_text;
-    }
-    if (window.app) window.app.switchTab('sessions');
+    if (window.app) window.app.renderApp();
   });
 
   setHandler('new_escalation', (payload) => {

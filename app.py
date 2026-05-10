@@ -192,19 +192,14 @@ async def ai_query(query: AIQuery, request: Request):
         history=history,
     )
 
-    # If a ticket_id was provided, persist AI result to that ticket
+    # If a ticket_id was provided, persist AI result (status unchanged, escalation handled by frontend)
     if query.ticket_id:
         ticket = get_ticket(query.ticket_id)
         if ticket:
-            update_ticket_status(query.ticket_id, TicketStatus.AI_PROCESSING.value)
             public_refs = json.dumps([c.model_dump() for c in response.citations], ensure_ascii=False)
             update_ticket_ai_response(
                 query.ticket_id, response.answer_text, public_refs, response.d2_match_found,
             )
-            if response.escalation_required and not ticket.get("escalated_to_rd"):
-                reason = response.d2_hint or "AI 建议升级"
-                db_escalate_ticket(query.ticket_id, reason)
-            update_ticket_status(query.ticket_id, TicketStatus.RESOLVED.value)
 
     return QueryResponse(success=True, data=response)
 
@@ -497,18 +492,45 @@ async def send_agent_message(ticket_id: int, data: dict, request: Request):
     if not content.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
 
-    # RD can only message escalated tickets
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
-    if session["role"] == "rd" and not ticket.get("escalated_to_rd"):
-        raise HTTPException(status_code=403, detail="该工单未升级，无法回复")
+    # CS must have accepted the ticket
+    if session["role"] == "cs" and not ticket.get("assigned_cs"):
+        raise HTTPException(status_code=403, detail="请先处理工单")
+    # RD must have accepted the escalated ticket
+    if session["role"] == "rd" and not ticket.get("assigned_rd"):
+        raise HTTPException(status_code=403, detail="请先接管工单")
 
     await ws_clients.handle_agent_message(ticket_id, content, session["role"], session["username"])
     return {"success": True}
 
 
 # ==================== Service Lifecycle ====================
+
+@app.post("/api/tickets/{ticket_id}/accept")
+async def accept_ticket(ticket_id: int, request: Request):
+    """RD accepts an escalated ticket."""
+    session = await require_role(request, ["rd"])
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    if not ticket.get("escalated_to_rd"):
+        raise HTTPException(status_code=400, detail="该工单未被升级")
+    await ws_clients.handle_rd_accept(ticket_id, session["username"])
+    return {"success": True, "message": "已接管工单"}
+
+
+@app.post("/api/tickets/{ticket_id}/handle")
+async def handle_ticket(ticket_id: int, request: Request):
+    """CS accepts a ticket for handling."""
+    session = await require_role(request, ["cs"])
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    await ws_clients.handle_cs_accept(ticket_id, session["username"])
+    return {"success": True, "message": "已开始处理工单"}
+
 
 @app.post("/api/tickets/{ticket_id}/end-service")
 async def end_service(ticket_id: int, request: Request):
@@ -581,40 +603,16 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
     customer_id = _customer_tokens[token]
     await websocket.accept()
 
-    try:
-        ticket_id = await ws_clients.register_customer(customer_id, websocket)
-    except Exception as e:
-        await websocket.close(code=4002, reason=str(e))
-        return
+    await ws_clients.register_customer(customer_id, websocket)
 
-    # Send welcome with ticket_id
+    # Welcome without ticket — ticket created on first message
     await websocket.send_json({
         "type": "connected",
-        "payload": {"customer_id": customer_id, "ticket_id": ticket_id},
+        "payload": {"customer_id": customer_id, "ticket_id": None},
     })
 
-    # Auto-greeting: check if CS is assigned
-    cs_name = ws_clients.ticket_cs.get(ticket_id)
-    if cs_name:
-        greeting = f"客服 {cs_name} 为您服务，正在查询解决方案"
-        insert_message(ticket_id, "system", "系统", greeting)
-        await websocket.send_json({
-            "type": "system_message",
-            "payload": {"ticket_id": ticket_id, "content": greeting},
-        })
-
-        # Notify CS about new session
-        ticket = get_ticket(ticket_id)
-        await ws_clients.send_to_cs(ticket_id, {
-            "type": "new_session",
-            "payload": {
-                "ticket_id": ticket_id,
-                "title": ticket.get("title", "") if ticket else "",
-                "customer_id": customer_id,
-            },
-        })
-
     try:
+        ticket_id = None
         while True:
             data = await websocket.receive_json()
             msg_type = data.get("type", "")
@@ -623,7 +621,16 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
             if msg_type == "customer_message":
                 content = payload.get("content", "")
                 if content.strip():
-                    await ws_clients.handle_customer_message(ticket_id, content, customer_id)
+                    ticket_id = await ws_clients.handle_customer_message(
+                        ticket_id or payload.get("ticket_id") or 0,
+                        content, customer_id,
+                    )
+                    # Send ticket_id back on first message
+                    if ticket_id:
+                        await websocket.send_json({
+                            "type": "ticket_assigned",
+                            "payload": {"ticket_id": ticket_id},
+                        })
 
             elif msg_type == "satisfaction":
                 resolved = payload.get("resolved", "")
@@ -686,10 +693,11 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
                 ticket_id = payload.get("ticket_id")
                 content = payload.get("content", "")
                 if ticket_id and content.strip():
-                    # RD can only message escalated tickets
                     ticket = get_ticket(ticket_id)
-                    if role == "rd" and ticket and not ticket.get("escalated_to_rd"):
-                        await websocket.send_json({"type": "error", "payload": {"message": "该工单未升级，无法回复"}})
+                    if role == "cs" and ticket and not ticket.get("assigned_cs"):
+                        await websocket.send_json({"type": "error", "payload": {"message": "请先处理工单"}})
+                    elif role == "rd" and ticket and not ticket.get("assigned_rd"):
+                        await websocket.send_json({"type": "error", "payload": {"message": "请先接管工单"}})
                     else:
                         await ws_clients.handle_agent_message(ticket_id, content, role, username)
 

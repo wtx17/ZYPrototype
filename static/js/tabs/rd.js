@@ -44,26 +44,9 @@ export async function initRDSessions() {
       state.aiPanelVisible = false;
     }
     loadAgentSessions();
-    if (window.app) window.app.switchTab('escalations');
+    if (window.app) window.app.renderApp();
   });
 
-  setHandler('ai_response', (payload) => {
-    state.aiQueryResult = {
-      answer_text: payload.answer_text,
-      confidence_score: payload.confidence_score,
-      confidence_label: payload.confidence_label,
-      citations: payload.citations,
-      d2_match_found: payload.d2_match_found,
-      d2_hint: payload.d2_hint,
-      escalation_required: payload.escalation_required,
-      query_text: payload.query_text,
-    };
-    const input = document.getElementById('sessionReplyInput');
-    if (input && payload.answer_text) {
-      input.value = payload.answer_text;
-    }
-    if (window.app) window.app.switchTab('escalations');
-  });
 }
 
 async function reloadWorkspaceMessages(ticketId) {

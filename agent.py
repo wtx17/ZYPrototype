@@ -213,11 +213,14 @@ def query_ai(query_text: str, ticket_id: Optional[int] = None, role: str = "cs",
 
     # Step 6: LLM Generation
     logger.info("[LLM] calling model=%s context_len=%d flags=%d", LLM_MODEL, len(context), len(flags))
+    import httpx
+    http_client = httpx.Client(trust_env=False)
     llm = ChatOpenAI(
         model=LLM_MODEL,
         openai_api_key=DASHSCOPE_API_KEY,
         openai_api_base=BAILIAN_BASE_URL,
         temperature=0.1,
+        http_client=http_client,
     )
     prompt = ChatPromptTemplate.from_messages([
         ("system", RAG_SYSTEM_PROMPT),

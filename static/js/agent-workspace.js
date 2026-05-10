@@ -1,16 +1,15 @@
-import { escHtml } from './utils.js';
+import { escHtml, toast } from './utils.js';
 import { state } from './state.js';
 import { api } from './api.js';
 import { sendMessage } from './websocket.js';
-import { renderMessages, renderActionBar, renderEndServiceButton } from './agent-chat.js';
+import { renderMessages, renderEndServiceButton } from './agent-chat.js';
 
-// ==================== Session List Views ====================
+// ==================== Session List ====================
 
 export async function loadAgentSessions() {
   const endpoint = state.role === 'cs' ? '/api/cs/sessions' : '/api/rd/sessions';
   const data = await api(endpoint);
   const tickets = data.data || [];
-
   const listEl = document.getElementById('sessionList');
   if (!listEl) return;
 
@@ -54,111 +53,265 @@ export function renderSessionWorkspace() {
   if (!ticket) return '<div class="empty">请选择一个会话</div>';
 
   const leftWidth = state.aiPanelVisible ? '30%' : '100%';
+  const csAccepted = ticket.assigned_cs;
+  const rdAccepted = ticket.assigned_rd;
+  const canSend = (state.role === 'cs' && csAccepted) || (state.role === 'rd' && rdAccepted);
 
   return `
     <div style="display:flex;height:calc(100vh - 200px);gap:16px;">
-      <!-- Left: Chat Panel -->
       <div style="flex:0 0 ${leftWidth};display:flex;flex-direction:column;transition:flex 0.3s;min-width:0;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
           <span class="status-tag ${ticket.status || 'pending'}">${ticket.status || 'pending'}</span>
           <div style="display:flex;gap:8px;">
-            ${state.role === 'cs' && ticket.status !== 'escalated' ? `
+            ${state.role === 'cs' && !csAccepted ? `
+              <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
+            ` : ''}
+            ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
               <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
             ` : ''}
-            ${state.role === 'rd' && ticket.status === 'escalated' ? `
+            ${state.role === 'rd' && !rdAccepted ? `
               <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
             ` : ''}
-            ${renderEndServiceButton(ticket.id)}
+            <button class="btn btn-outline btn-sm" onclick="app.askAIDirectly(${ticket.id})">询问 AI 助手</button>
+            ${canSend ? renderEndServiceButton(ticket.id) : ''}
           </div>
         </div>
         <div id="sessionChatMessages" style="flex:1;overflow-y:auto;padding:8px;background:rgba(255,255,255,0.3);border-radius:12px;margin-bottom:8px;">
           ${renderMessages(state.sessionMessages || [])}
         </div>
-        <div style="display:flex;gap:8px;align-items:flex-end;">
-          <textarea id="sessionReplyInput" rows="2" placeholder="输入回复..."
-            style="flex:1;"
-            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.sendReply(${ticket.id});}"></textarea>
-          <button class="btn btn-primary btn-sm" onclick="app.sendReply(${ticket.id})" style="align-self:flex-end;">发送</button>
-        </div>
-        <div style="margin-top:8px;display:flex;gap:8px;">
-          <button class="btn btn-outline btn-sm" onclick="app.askAIAssistant(${ticket.id})">
-            询问 AI 助手
-          </button>
-          ${state.role === 'cs' && ticket.status !== 'escalated' ? `
-            <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">
-              升级工单
-            </button>
-          ` : ''}
-        </div>
+        ${canSend ? `
+          <div style="display:flex;gap:8px;align-items:flex-end;">
+            <textarea id="sessionReplyInput" rows="2" placeholder="输入回复..."
+              style="flex:1;"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.sendReply(${ticket.id});}"></textarea>
+            <button class="btn btn-primary btn-sm" onclick="app.sendReply(${ticket.id})" style="align-self:flex-end;">发送</button>
+          </div>
+        ` : `
+          <div style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">
+            请先点击「${state.role === 'cs' ? '处理工单' : '接管工单'}」接入服务
+          </div>
+        `}
       </div>
-      <!-- Right: AI Panel -->
-      ${state.aiPanelVisible ? renderAIPanel() : ''}
+      ${state.aiPanelVisible ? renderAIDialog() : ''}
     </div>`;
 }
 
-// ==================== AI Panel ====================
+// ==================== AI Dialog ====================
 
-function renderAIPanel() {
-  const result = state.aiQueryResult;
-
-  if (!result) {
-    return `
-      <div class="ai-panel">
-        <div class="ai-panel-header">
-          <h4>AI 智能助手</h4>
-          <button class="btn-sm" onclick="app.closeAIPanel()">✕</button>
-        </div>
-        <div class="empty" style="flex:1;display:flex;align-items:center;justify-content:center;">
-          正在查询 AI ...
-        </div>
-      </div>`;
-  }
-
-  const confColor = result.confidence_label === 'green' ? 'var(--green)'
-    : result.confidence_label === 'yellow' ? 'var(--yellow)' : 'var(--red)';
-  const confBg = result.confidence_label === 'green' ? 'rgba(52,199,89,0.1)'
-    : result.confidence_label === 'yellow' ? 'rgba(255,204,0,0.1)' : 'rgba(255,59,48,0.1)';
-  const confPct = (result.confidence_score * 100).toFixed(0);
+function renderAIDialog() {
+  const msgs = state.aiMessages || [];
 
   return `
-    <div class="ai-panel">
-      <div class="ai-panel-header">
+    <div class="ai-dialog">
+      <div class="ai-dialog-header">
         <h4>AI 智能助手</h4>
         <button class="btn-sm" onclick="app.closeAIPanel()">✕</button>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
-        客户问题: ${escHtml(result.query_text || state.activeSession?.description || '')}
+      <div class="ai-dialog-messages" id="aiDialogMessages">
+        ${msgs.length === 0 && !state.aiLoading
+          ? '<div class="empty" style="padding:40px;">在输入框中输入问题，或悬停在客户消息上点击按钮</div>'
+          : ''}
+        ${msgs.map((m, i) => renderAIMessage(m, i)).join('')}
+        ${state.aiLoading ? '<div class="msg-row agent"><div class="msg-bubble bubble-agent"><span class="typing-dots">AI 正在思考</span></div></div>' : ''}
       </div>
-      <div class="ai-answer-box">${escHtml(result.answer_text || '(无回答)')}</div>
-      ${renderCitations(result.citations || [])}
-      <div style="margin-top:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span class="confidence ${result.confidence_label || 'red'}">
-          置信度: ${confPct}% (${(result.confidence_label || 'RED').toUpperCase()})
-        </span>
-        ${result.d2_match_found ? '<span style="color:#b36800;font-size:12px;">⚠ 检测到内部资料</span>' : ''}
-        ${result.escalation_required ? '<span style="color:var(--red);font-size:12px;">建议升级</span>' : ''}
-      </div>
-      <div style="margin-top:12px;display:flex;gap:8px;">
-        <button class="btn btn-outline btn-sm" onclick="app.retryAI()">重试</button>
-        <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateFromAI()">升级</button>
+      <div class="ai-dialog-input">
+        <textarea id="aiFollowUpInput" rows="1" placeholder="输入问题询问 AI..."
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.aiFollowUp();}"></textarea>
+        <button class="btn btn-primary btn-sm" onclick="app.aiFollowUp()">发送</button>
       </div>
     </div>`;
 }
 
-function renderCitations(citations) {
-  if (!citations || !citations.length) return '';
+function renderAIMessage(m, index) {
+  if (m.role === 'user') {
+    return `
+      <div class="msg-row customer">
+        <div class="msg-bubble bubble-customer">${escHtml(m.content)}</div>
+      </div>`;
+  }
+
+  // AI response
+  const confColor = m.confidence_label === 'green' ? 'var(--green)'
+    : m.confidence_label === 'yellow' ? 'var(--yellow)' : 'var(--red)';
+  const confPct = ((m.confidence_score || 0) * 100).toFixed(0);
+
   return `
-    <div style="margin-top:8px;font-size:12px;border-top:1px solid rgba(0,0,0,0.08);padding-top:8px;">
-      <strong>引用来源:</strong>
-      ${citations.map((c, i) => `
-        <div class="citation">
-          <span class="title">${i + 1}. ${escHtml(c.doc_title || '')}</span>
-          ${c.section ? `<span class="meta">${escHtml(c.section)}</span>` : ''}
-          ${c.snippet ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${escHtml(c.snippet).substring(0, 120)}</div>` : ''}
+    <div class="msg-row agent">
+      <div class="msg-bubble bubble-agent" style="max-width:90%;">
+        <div style="white-space:pre-wrap;line-height:1.7;">${escHtml(m.content)}</div>
+        ${m.citations && m.citations.length > 0 ? `
+          <div class="ai-citations">
+            <strong>引用来源:</strong>
+            ${m.citations.map((c, i) => `
+              <div class="ai-cite-item">${i + 1}. ${escHtml(c.doc_title || '')}</div>
+            `).join('')}
+          </div>
+        ` : ''}
+        <div class="ai-confidence" style="background:${m.confidence_label === 'green' ? 'rgba(52,199,89,0.1)' : m.confidence_label === 'yellow' ? 'rgba(255,204,0,0.1)' : 'rgba(255,59,48,0.1)'};color:${confColor};">
+          ● 置信度: ${confPct}% (${(m.confidence_label || 'RED').toUpperCase()})
         </div>
-      `).join('')}
+        ${m.d2_match_found ? '<div style="margin-top:4px;color:#b36800;font-size:12px;">⚠ 检测到内部资料，建议升级工单</div>' : ''}
+      </div>
     </div>`;
+}
+
+// ==================== AI Actions ====================
+
+export async function askAIForMessage(index) {
+  if (!state.activeSessionId) return;
+  const msg = state.sessionMessages[index];
+  if (!msg || msg.sender_type !== 'customer') return;
+
+  const question = msg.content;
+  state.aiPanelVisible = true;
+  state.aiLoading = true;
+  state.aiQueryResult = null;
+  if (!state.aiMessages) state.aiMessages = [];
+
+  // Add user question to AI dialog
+  state.aiMessages.push({ role: 'user', content: question });
+  window.app.renderApp();
+  scrollAIDialog();
+
+  // Call REST API for AI query
+  try {
+    const resp = await api('/api/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query_text: question,
+        ticket_id: state.activeSessionId,
+        history: state.aiMessages.filter(m => m.role !== 'user' || m !== state.aiMessages[state.aiMessages.length - 1]).map(m => ({ role: m.role, content: m.content })),
+      }),
+    });
+
+    if (resp.success && resp.data) {
+      const d = resp.data;
+      state.aiMessages.push({
+        role: 'assistant',
+        content: d.answer_text || '(无回答)',
+        confidence_score: d.confidence_score,
+        confidence_label: d.confidence_label,
+        citations: d.citations || [],
+        d2_match_found: d.d2_match_found,
+        escalation_required: d.escalation_required,
+        d2_hint: d.d2_hint,
+      });
+      state.aiQueryResult = {
+        answer_text: d.answer_text,
+        confidence_score: d.confidence_score,
+        confidence_label: d.confidence_label,
+        citations: d.citations || [],
+        d2_match_found: d.d2_match_found,
+        d2_hint: d.d2_hint,
+        escalation_required: d.escalation_required,
+        query_text: question,
+      };
+    } else {
+      state.aiMessages.push({
+        role: 'assistant',
+        content: 'AI 查询失败: ' + (resp.error || '未知错误'),
+        confidence_score: 0, confidence_label: 'red', citations: [],
+      });
+    }
+  } catch (e) {
+    state.aiMessages.push({
+      role: 'assistant',
+      content: '网络错误: ' + e.message,
+      confidence_score: 0, confidence_label: 'red', citations: [],
+    });
+  }
+
+  state.aiLoading = false;
+  window.app.renderApp();
+  scrollAIDialog();
+  checkAutoEscalate();
+}
+
+export async function aiFollowUp() {
+  const input = document.getElementById('aiFollowUpInput');
+  if (!input || !input.value.trim()) return;
+
+  const question = input.value.trim();
+  input.value = '';
+  state.aiLoading = true;
+  state.aiMessages.push({ role: 'user', content: question });
+  window.app.renderApp();
+  scrollAIDialog();
+
+  try {
+    const resp = await api('/api/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query_text: question,
+        ticket_id: state.activeSessionId,
+        history: state.aiMessages.slice(0, -1).filter(m => m.confidence_score !== undefined || m.role === 'user').map(m => ({ role: m.role, content: m.content })),
+      }),
+    });
+
+    if (resp.success && resp.data) {
+      const d = resp.data;
+      state.aiMessages.push({
+        role: 'assistant',
+        content: d.answer_text || '(无回答)',
+        confidence_score: d.confidence_score,
+        confidence_label: d.confidence_label,
+        citations: d.citations || [],
+        d2_match_found: d.d2_match_found,
+        escalation_required: d.escalation_required,
+        d2_hint: d.d2_hint,
+      });
+    }
+  } catch (e) {
+    state.aiMessages.push({
+      role: 'assistant',
+      content: '网络错误: ' + e.message,
+      confidence_score: 0, confidence_label: 'red', citations: [],
+    });
+  }
+
+  state.aiLoading = false;
+  window.app.renderApp();
+  scrollAIDialog();
+  checkAutoEscalate();
+}
+
+export function closeAIPanel() {
+  state.aiPanelVisible = false;
+  state.aiLoading = false;
+  window.app.renderApp();
+}
+
+function checkAutoEscalate() {
+  if (state.role !== 'cs' || !state.activeSessionId) return;
+  const lastMsg = state.aiMessages[state.aiMessages.length - 1];
+  if (!lastMsg || lastMsg.role !== 'assistant') return;
+  if (!lastMsg.escalation_required) return;
+
+  let reason = 'AI 建议升级工单';
+  if (lastMsg.d2_hint) reason = lastMsg.d2_hint;
+  else if (lastMsg.confidence_label === 'red') reason = 'AI 置信度过低 (RED)';
+  else if (lastMsg.d2_match_found) reason = '检测到内部资料匹配，建议升级';
+
+  if (confirm(`AI 建议升级此工单\n\n原因: ${reason}\n\n是否升级至二线研发？`)) {
+    escalateSession(state.activeSessionId);
+  }
+}
+
+function scrollAIDialog() {
+  setTimeout(() => {
+    const el = document.getElementById('aiDialogMessages');
+    if (el) el.scrollTop = el.scrollHeight;
+  }, 100);
+}
+
+export async function askAIDirectly(ticketId) {
+  state.aiPanelVisible = true;
+  state.aiLoading = false;
+  if (!state.aiMessages) state.aiMessages = [];
+  window.app.renderApp();
 }
 
 // ==================== Session Actions ====================
@@ -170,6 +323,8 @@ export async function openSession(ticketId) {
   state.sessionMessages = data.data.messages || [];
   state.aiPanelVisible = false;
   state.aiQueryResult = null;
+  state.aiMessages = [];
+  state.aiLoading = false;
   window.app.renderApp();
 }
 
@@ -180,7 +335,6 @@ export async function sendReply(ticketId) {
   const content = input.value.trim();
   input.value = '';
 
-  // Use REST (reliable, auth-gated, handles DB insert + WS forward to customer)
   await api(`/api/tickets/${ticketId}/send-message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -190,36 +344,8 @@ export async function sendReply(ticketId) {
   setTimeout(() => reloadMessages(ticketId), 300);
 }
 
-export async function askAIAssistant(ticketId) {
-  state.aiPanelVisible = true;
-  state.aiQueryResult = null;
-  window.app.renderApp();
-
-  sendMessage({
-    type: 'ai_request',
-    payload: { ticket_id: ticketId },
-  });
-}
-
-export async function escalateSession(ticketId) {
-  if (!confirm('确认将此工单升级至二线研发？')) return;
-
-  sendMessage({
-    type: 'escalate',
-    payload: { ticket_id: ticketId, reason: '客服主动升级' },
-  });
-
-  state.activeSessionId = null;
-  state.activeSession = null;
-  state.aiPanelVisible = false;
-  window.app.renderApp();
-}
-
-export async function acceptEscalation(ticketId) {
-  sendMessage({
-    type: 'accept_escalation',
-    payload: { ticket_id: ticketId },
-  });
+export async function handleTicket(ticketId) {
+  await api(`/api/tickets/${ticketId}/handle`, { method: 'POST' });
 
   const data = await api(`/api/sessions/${ticketId}`);
   state.activeSession = data.data.ticket;
@@ -227,20 +353,32 @@ export async function acceptEscalation(ticketId) {
   window.app.renderApp();
 }
 
-export function escalateFromAI() {
-  if (state.activeSessionId) {
-    escalateSession(state.activeSessionId);
-  }
+export async function escalateSession(ticketId) {
+  if (!confirm('确认将此工单升级至二线研发？')) return;
+
+  sendMessage({ type: 'escalate', payload: { ticket_id: ticketId, reason: '客服主动升级' } });
+
+  state.activeSessionId = null;
+  state.activeSession = null;
+  state.aiPanelVisible = false;
+  state.aiMessages = [];
+  window.app.renderApp();
+}
+
+export async function acceptEscalation(ticketId) {
+  await api(`/api/tickets/${ticketId}/accept`, { method: 'POST' });
+
+  const data = await api(`/api/sessions/${ticketId}`);
+  state.activeSession = data.data.ticket;
+  state.sessionMessages = data.data.messages || [];
+  state.aiMessages = [];
+  window.app.renderApp();
 }
 
 export async function endService(ticketId) {
   if (!confirm('确认结束服务？')) return;
 
-  sendMessage({
-    type: 'service_end',
-    payload: { ticket_id: ticketId },
-  });
-
+  sendMessage({ type: 'service_end', payload: { ticket_id: ticketId } });
   await api(`/api/tickets/${ticketId}/end-service`, { method: 'POST' }).catch(() => {});
 
   state.activeSessionId = null;
@@ -248,18 +386,8 @@ export async function endService(ticketId) {
   state.sessionMessages = [];
   state.aiPanelVisible = false;
   state.aiQueryResult = null;
-  window.app.renderApp();
-}
-
-export async function retryAI() {
-  if (state.activeSessionId) {
-    askAIAssistant(state.activeSessionId);
-  }
-}
-
-export function closeAIPanel() {
-  state.aiPanelVisible = false;
-  state.aiQueryResult = null;
+  state.aiMessages = [];
+  state.aiLoading = false;
   window.app.renderApp();
 }
 
@@ -269,6 +397,8 @@ export function backToSessionList() {
   state.sessionMessages = [];
   state.aiPanelVisible = false;
   state.aiQueryResult = null;
+  state.aiMessages = [];
+  state.aiLoading = false;
   window.app.renderApp();
 }
 

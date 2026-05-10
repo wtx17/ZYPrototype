@@ -43,26 +43,9 @@ class WSClients:
 
     DEFAULT_CS = "小陈"
 
-    async def register_customer(self, customer_id: str, ws: WebSocket) -> int:
-        """Register a customer connection. Returns a new ticket_id."""
+    async def register_customer(self, customer_id: str, ws: WebSocket):
+        """Register a customer connection. Ticket is created on first message."""
         self.customers[customer_id] = ws
-        ticket_id = insert_ticket({
-            "title": f"客户 {customer_id} 咨询",
-            "description": "",
-            "status": TicketStatus.PENDING.value,
-            "created_by": "system",
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-        })
-        update_ticket_customer(ticket_id, customer_id)
-        self.ticket_map[ticket_id] = customer_id
-
-        # Always assign to default CS
-        cs_name = self.DEFAULT_CS
-        assign_ticket_cs(ticket_id, cs_name)
-        self.ticket_cs[ticket_id] = cs_name
-        update_ticket_status_db(ticket_id, TicketStatus.PENDING.value)
-        return ticket_id
 
     async def register_cs(self, username: str, ws: WebSocket):
         self.cs_agents[username] = ws
@@ -111,16 +94,25 @@ class WSClients:
 
     # --- Business Logic ---
 
-    async def handle_customer_message(self, ticket_id: int, content: str, customer_id: str):
-        """Customer sends a message → persist + forward to assigned CS."""
+    async def handle_customer_message(self, ticket_id: int, content: str, customer_id: str) -> int:
+        """Customer sends a message → persist + forward.
+        If ticket_id is 0 or None, creates a new ticket on first message.
+        Returns the ticket_id."""
+        if not ticket_id:
+            ticket_id = self._create_ticket_for_customer(customer_id, content)
+            # Notify all CS agents about new ticket
+            ticket = get_ticket(ticket_id)
+            await self.send_to_all_cs({
+                "type": "new_session",
+                "payload": {
+                    "ticket_id": ticket_id,
+                    "title": ticket.get("title", "") if ticket else "",
+                    "customer_id": customer_id,
+                },
+            })
+
         insert_message(ticket_id, "customer", customer_id, content)
         ticket = get_ticket(ticket_id)
-        cs_name = self.ticket_cs.get(ticket_id)
-        if not cs_name and self.cs_agents:
-            cs_name = next(iter(self.cs_agents))
-            assign_ticket_cs(ticket_id, cs_name)
-            self.ticket_cs[ticket_id] = cs_name
-            update_ticket_status_db(ticket_id, TicketStatus.PENDING.value)
 
         msg = {
             "type": "customer_message",
@@ -132,6 +124,33 @@ class WSClients:
             },
         }
         await self.send_to_cs(ticket_id, msg)
+        return ticket_id
+
+    async def handle_cs_accept(self, ticket_id: int, cs_name: str):
+        """CS accepts a ticket. Assigns CS and sends greeting to customer."""
+        assign_ticket_cs(ticket_id, cs_name)
+        self.ticket_cs[ticket_id] = cs_name
+        greeting = f"客服 {cs_name} 为您服务"
+        insert_message(ticket_id, "system", "系统", greeting)
+        await self.send_to_customer(ticket_id, {
+            "type": "system_message",
+            "payload": {"ticket_id": ticket_id, "content": greeting},
+        })
+
+    def _create_ticket_for_customer(self, customer_id: str, content: str) -> int:
+        """Create a ticket on first customer message. No auto-assignment."""
+        title = content[:80] if len(content) > 80 else content
+        ticket_id = insert_ticket({
+            "title": title,
+            "description": content,
+            "status": TicketStatus.PENDING.value,
+            "created_by": "system",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        })
+        update_ticket_customer(ticket_id, customer_id)
+        self.ticket_map[ticket_id] = customer_id
+        return ticket_id
 
     async def handle_agent_message(self, ticket_id: int, content: str, sender_type: str, sender_name: str):
         """CS or RD sends a message → persist + forward to customer."""
@@ -163,7 +182,7 @@ class WSClients:
             },
         })
 
-        # Notify CS to exit
+        # Notify CS to exit and clear assignment
         cs_name = self.ticket_cs.get(ticket_id)
         if cs_name and cs_name in self.cs_agents:
             await self.cs_agents[cs_name].send_json({
@@ -171,6 +190,9 @@ class WSClients:
                 "payload": {"ticket_id": ticket_id, "action": "exit"},
             })
         self.ticket_cs.pop(ticket_id, None)
+        # Clear assigned_cs so ticket leaves CS session list
+        from database import clear_ticket_cs
+        clear_ticket_cs(ticket_id)
 
         # Notify all RD agents
         ticket = get_ticket(ticket_id)
@@ -187,7 +209,6 @@ class WSClients:
         """RD accepts an escalated ticket. Takes over the conversation."""
         assign_ticket_rd(ticket_id, rd_name)
         self.ticket_rd[ticket_id] = rd_name
-        update_ticket_status_db(ticket_id, TicketStatus.AI_PROCESSING.value)
         insert_message(ticket_id, "system", "系统", f"工程师 {rd_name} 为您服务")
 
         await self.send_to_customer(ticket_id, {
