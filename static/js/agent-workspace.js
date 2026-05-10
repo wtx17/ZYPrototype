@@ -378,8 +378,7 @@ export async function acceptEscalation(ticketId) {
 export async function endService(ticketId) {
   if (!confirm('确认结束服务？')) return;
 
-  sendMessage({ type: 'service_end', payload: { ticket_id: ticketId } });
-  await api(`/api/tickets/${ticketId}/end-service`, { method: 'POST' }).catch(() => {});
+  await api(`/api/tickets/${ticketId}/end-service`, { method: 'POST' });
 
   state.activeSessionId = null;
   state.activeSession = null;
