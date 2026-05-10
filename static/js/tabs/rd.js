@@ -1,64 +1,130 @@
 import { api } from '../api.js';
-import { statusLabels } from '../config.js';
-import { escHtml, formatDate, toast } from '../utils.js';
+import { state } from '../state.js';
+import { escHtml, toast, formatDate } from '../utils.js';
+import { loadAgentSessions, renderSessionList, renderSessionWorkspace } from '../agent-workspace.js';
+
+// ==================== Main Tab Renderers ====================
 
 export function renderRDEscalations() {
-  return `
-    <div class="card">
-      <h3>升级工单列表 (Process 4 & 5)</h3>
-      <button class="btn btn-outline" onclick="app.loadEscalatedTickets()" style="margin-bottom:12px;">刷新列表</button>
-      <div id="escalatedList"><div class="empty">点击刷新加载升级工单</div></div>
-    </div>`;
+  if (state.activeSessionId && state.activeSession) {
+    return renderSessionWorkspace();
+  }
+  return renderSessionList();
 }
+
+export async function initRDSessions() {
+  await loadAgentSessions();
+
+  const { setHandler, connectAgentWsWithRetry, getSessionId } = await import('../websocket.js');
+  const sessionId = getSessionId();
+  if (sessionId) {
+    connectAgentWsWithRetry(sessionId);
+  }
+
+  // Polling backup: refresh every 5 seconds
+  if (window._rdPollInterval) clearInterval(window._rdPollInterval);
+  window._rdPollInterval = setInterval(() => loadAgentSessions(), 5000);
+
+  setHandler('new_escalation', (payload) => {
+    toast(`新的升级工单 #${payload.ticket_id}: ${payload.title}`);
+    loadAgentSessions();
+  });
+
+  setHandler('customer_message', (payload) => {
+    if (state.activeSessionId === payload.ticket_id) {
+      reloadWorkspaceMessages(payload.ticket_id);
+    }
+    loadAgentSessions();
+  });
+
+  setHandler('ticket_closed', (payload) => {
+    if (state.activeSessionId === payload.ticket_id) {
+      state.activeSessionId = null;
+      state.activeSession = null;
+      state.aiPanelVisible = false;
+    }
+    loadAgentSessions();
+    if (window.app) window.app.switchTab('escalations');
+  });
+
+  setHandler('ai_response', (payload) => {
+    state.aiQueryResult = {
+      answer_text: payload.answer_text,
+      confidence_score: payload.confidence_score,
+      confidence_label: payload.confidence_label,
+      citations: payload.citations,
+      d2_match_found: payload.d2_match_found,
+      d2_hint: payload.d2_hint,
+      escalation_required: payload.escalation_required,
+      query_text: payload.query_text,
+    };
+    const input = document.getElementById('sessionReplyInput');
+    if (input && payload.answer_text) {
+      input.value = payload.answer_text;
+    }
+    if (window.app) window.app.switchTab('escalations');
+  });
+}
+
+async function reloadWorkspaceMessages(ticketId) {
+  try {
+    const data = await api(`/api/tickets/${ticketId}/messages`);
+    state.sessionMessages = data.data || [];
+    const container = document.getElementById('sessionChatMessages');
+    if (container) {
+      const { renderMessages } = await import('../agent-chat.js');
+      container.innerHTML = renderMessages(state.sessionMessages);
+      container.scrollTop = container.scrollHeight;
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// ==================== Legacy: Escalated Tickets List ====================
 
 export async function loadEscalatedTickets() {
   const data = await api('/api/tickets');
   const container = document.getElementById('escalatedList');
-  if (!container) {
-    return;
-  }
+  if (!container) return;
 
-  const tickets = (data.data || []).filter((ticket) => ticket.escalated_to_rd && ticket.status !== 'closed');
+  const tickets = (data.data || []).filter(t => t.escalated_to_rd && t.status !== 'closed');
   if (!tickets.length) {
     container.innerHTML = '<div class="empty">暂无升级工单</div>';
     return;
   }
 
   let html = '<table><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody>';
-  tickets.forEach((ticket) => {
-    const encodedSuggestion = encodeURIComponent(ticket.ai_suggestion || '');
+  tickets.forEach(ticket => {
     html += `<tr>
       <td>#${ticket.id}</td>
       <td>${escHtml(ticket.title).substring(0, 50)}</td>
-      <td><span class="status-tag ${ticket.status}">${escHtml(statusLabels[ticket.status] || ticket.status)}</span></td>
+      <td><span class="status-tag ${ticket.status}">${ticket.status}</span></td>
       <td>${escHtml((ticket.description || '').substring(0, 80))}</td>
       <td>
+        <button class="btn-sm" onclick="app.openSession(${ticket.id})">处理</button>
         <button class="btn-sm" onclick="app.showResolveForm(${ticket.id})">解决</button>
-        ${ticket.ai_suggestion ? `<button class="btn-sm" onclick="app.showTextPreview('AI建议', decodeURIComponent('${encodedSuggestion}'))">查看AI建议</button>` : ''}
       </td>
     </tr>`;
   });
   html += '</tbody></table>';
-
   container.innerHTML = html;
 }
 
 export async function showResolveForm(ticketId) {
   const solution = window.prompt('请输入解决方案:');
-  if (!solution) {
-    return;
-  }
-
+  if (!solution) return;
   const version = window.prompt('版本号 (可选):') || '';
   await api(`/api/escalations/${ticketId}/resolve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ solution, version }),
   });
-
   toast('升级工单已解决 (P5)');
   await loadEscalatedTickets();
 }
+
+// ==================== Legacy: Knowledge Management ====================
 
 export function renderRDSubmitSolution() {
   return `
@@ -79,23 +145,17 @@ export async function submitSolution() {
   const keywordsInput = document.getElementById('solKeywords');
   const contentInput = document.getElementById('solContent');
   const result = document.getElementById('solResult');
-  if (!titleInput || !versionInput || !keywordsInput || !contentInput || !result) {
-    return;
-  }
+  if (!titleInput || !versionInput || !keywordsInput || !contentInput || !result) return;
 
   const title = titleInput.value.trim();
   const content = contentInput.value.trim();
-  if (!title || !content) {
-    toast('请填写标题和内容', 'error');
-    return;
-  }
+  if (!title || !content) { toast('请填写标题和内容', 'error'); return; }
 
   const data = await api('/api/knowledge/rd', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      title,
-      content,
+      title, content,
       version: versionInput.value.trim(),
       keywords: keywordsInput.value.trim(),
       entry_type: 'solution',
@@ -104,10 +164,7 @@ export async function submitSolution() {
 
   result.innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${escHtml(data.message)} (ID: ${data.id})</div>`;
   toast('知识已沉淀至 D2');
-  titleInput.value = '';
-  versionInput.value = '';
-  keywordsInput.value = '';
-  contentInput.value = '';
+  titleInput.value = ''; versionInput.value = ''; keywordsInput.value = ''; contentInput.value = '';
 }
 
 export function renderRDReleaseNotes() {
@@ -129,23 +186,17 @@ export async function submitReleaseNote() {
   const keywordsInput = document.getElementById('rnKeywords');
   const contentInput = document.getElementById('rnContent');
   const result = document.getElementById('rnResult');
-  if (!titleInput || !versionInput || !keywordsInput || !contentInput || !result) {
-    return;
-  }
+  if (!titleInput || !versionInput || !keywordsInput || !contentInput || !result) return;
 
   const title = titleInput.value.trim();
   const content = contentInput.value.trim();
-  if (!title || !content) {
-    toast('请填写标题和内容', 'error');
-    return;
-  }
+  if (!title || !content) { toast('请填写标题和内容', 'error'); return; }
 
   const data = await api('/api/knowledge/release-notes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      title,
-      content,
+      title, content,
       version: versionInput.value.trim(),
       keywords: keywordsInput.value.trim(),
       release_note: title,
@@ -154,10 +205,7 @@ export async function submitReleaseNote() {
 
   result.innerHTML = `<div class="answer-box" style="background:#f0fdf4;margin-top:12px;">${escHtml(data.message)} (ID: ${data.id})</div>`;
   toast('Release Note 已发布');
-  titleInput.value = '';
-  versionInput.value = '';
-  keywordsInput.value = '';
-  contentInput.value = '';
+  titleInput.value = ''; versionInput.value = ''; keywordsInput.value = ''; contentInput.value = '';
 }
 
 export function renderRDKnowledge() {
@@ -172,18 +220,13 @@ export function renderRDKnowledge() {
 export async function loadRDKnowledge() {
   const data = await api('/api/knowledge/rd');
   const container = document.getElementById('rdKnowledgeList');
-  if (!container) {
-    return;
-  }
+  if (!container) return;
 
   const entries = data.data || [];
-  if (!entries.length) {
-    container.innerHTML = '<div class="empty">暂无 D2 知识条目</div>';
-    return;
-  }
+  if (!entries.length) { container.innerHTML = '<div class="empty">暂无 D2 知识条目</div>'; return; }
 
   let html = '<table><thead><tr><th>ID</th><th>标题</th><th>类型</th><th>版本</th><th>时间</th></tr></thead><tbody>';
-  entries.forEach((entry) => {
+  entries.forEach(entry => {
     html += `<tr>
       <td>#${entry.id}</td>
       <td>${escHtml(entry.title)}</td>
@@ -193,6 +236,5 @@ export async function loadRDKnowledge() {
     </tr>`;
   });
   html += '</tbody></table>';
-
   container.innerHTML = html;
 }

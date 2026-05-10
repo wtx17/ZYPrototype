@@ -1,19 +1,20 @@
 import { setUnauthorizedHandler } from './api.js';
-import { checkAuth, handleUnauthorized, login, logout, setRenderApp, switchRole } from './auth.js';
+import { checkAuth, handleUnauthorized, login, logout, setRenderApp } from './auth.js';
 import { roleLabels, roleTabs, tabLabels } from './config.js';
 import { doEscalate, loadTickets, showHandlingForm, showTicketDetail } from './features/tickets.js';
-import { state } from './state.js';
-import { copyText, showTextPreview } from './utils.js';
+import { state, resetSessionState } from './state.js';
+import { copyText, showTextPreview, toast } from './utils.js';
 import {
   createTicket,
-  createTicketFromChat,
-  newChat,
-  renderCSQuery,
   renderCSTickets,
   renderDesensitize,
-  scrollChatBottom,
-  submitChat,
+  renderCSQuery,
   testDesensitize,
+  newChat,
+  submitChat,
+  createTicketFromChat,
+  scrollChatBottom,
+  initCSSessions,
 } from './tabs/cs.js';
 import {
   loadPendingReviews,
@@ -33,10 +34,26 @@ import {
   showResolveForm,
   submitReleaseNote,
   submitSolution,
+  initRDSessions,
 } from './tabs/rd.js';
+import {
+  loadAgentSessions,
+  renderSessionWorkspace,
+  openSession,
+  sendReply,
+  askAIAssistant,
+  escalateSession,
+  acceptEscalation,
+  escalateFromAI,
+  endService,
+  retryAI,
+  closeAIPanel,
+  backToSessionList,
+  refreshSessions,
+} from './agent-workspace.js';
 
 const tabRenderers = {
-  query: renderCSQuery,
+  sessions: renderCSQuery,
   tickets: renderCSTickets,
   desensitize: renderDesensitize,
   escalations: renderRDEscalations,
@@ -54,29 +71,32 @@ function renderLogin() {
     <div class="login-overlay">
       <div class="login-card">
         <h2>智云科技 · AI 知识库系统</h2>
-        <div class="subtitle">请选择角色进入系统</div>
+        <div class="subtitle">请选择角色进入系统（每个角色可在独立标签页打开）</div>
         <div class="role-grid">
-          <div class="role-card" onclick="app.login('cs')">
+          <a href="/cs" class="role-card" style="text-decoration:none;color:inherit;">
             <div class="role-icon">💬</div>
             <div class="role-name">客服</div>
-            <div class="role-desc">AI查询 · 工单管理</div>
-          </div>
-          <div class="role-card" onclick="app.login('rd')">
+            <div class="role-desc">在线服务 · 工单管理</div>
+          </a>
+          <a href="/rd" class="role-card" style="text-decoration:none;color:inherit;">
             <div class="role-icon">🔧</div>
             <div class="role-name">二线研发</div>
             <div class="role-desc">升级处理 · 知识沉淀</div>
-          </div>
-          <div class="role-card" onclick="app.login('doc')">
+          </a>
+          <a href="/doc" class="role-card" style="text-decoration:none;color:inherit;">
             <div class="role-icon">📄</div>
             <div class="role-name">文档团队</div>
             <div class="role-desc">提交知识 · 审核</div>
-          </div>
-          <div class="role-card" onclick="app.login('manager')">
+          </a>
+          <a href="/manager" class="role-card" style="text-decoration:none;color:inherit;">
             <div class="role-icon">📊</div>
             <div class="role-name">管理层</div>
             <div class="role-desc">仪表盘 · 汇总</div>
-          </div>
+          </a>
         </div>
+        <p style="margin-top:20px;font-size:12px;color:var(--muted);">
+          每个角色在独立标签页中运行，互不干扰
+        </p>
       </div>
     </div>`;
 }
@@ -95,13 +115,6 @@ function renderMain() {
       <h1>智云科技 · AI 知识库系统</h1>
       <div class="header-right">
         <span class="role-badge ${state.role}">${roleLabels[state.role]}: ${state.username}</span>
-        <select class="role-select" onchange="app.switchRole(event)">
-          <option value="">切换角色</option>
-          <option value="cs">客服</option>
-          <option value="rd">二线研发</option>
-          <option value="doc">文档团队</option>
-          <option value="manager">管理层</option>
-        </select>
         <button class="btn-sm" onclick="app.logout()">退出</button>
       </div>
     </div>
@@ -111,9 +124,7 @@ function renderMain() {
 
 export function renderApp() {
   const root = document.getElementById('app');
-  if (!root) {
-    return;
-  }
+  if (!root) return;
 
   if (!state.role) {
     root.innerHTML = renderLogin();
@@ -131,32 +142,27 @@ export function renderApp() {
 
 export function switchTab(name) {
   const tabs = state.role ? roleTabs[state.role] : [];
-  if (!tabs.includes(name)) {
-    return;
-  }
+  if (!tabs.includes(name)) return;
 
   state.currentTab = name;
-  document.querySelectorAll('.tab').forEach((tab) => tab.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach((button) => button.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(btn => btn.classList.remove('active'));
 
   const activeTab = document.getElementById(`tab-${name}`);
-  if (activeTab) {
-    activeTab.classList.add('active');
-  }
+  if (activeTab) activeTab.classList.add('active');
 
   const activeButton = document.querySelector(`nav button[onclick="app.switchTab('${name}')"]`);
-  if (activeButton) {
-    activeButton.classList.add('active');
-  }
+  if (activeButton) activeButton.classList.add('active');
 
-  if (name === 'query') {
-    scrollChatBottom();
+  // Initialize sessions tab
+  if (name === 'sessions' && state.role === 'cs') {
+    initCSSessions();
+  }
+  if (name === 'escalations' && state.role === 'rd') {
+    initRDSessions();
   }
   if (name === 'tickets' || name === 'all-tickets') {
     void loadTickets();
-  }
-  if (name === 'escalations') {
-    void loadEscalatedTickets();
   }
   if (name === 'dashboard') {
     void loadMetrics();
@@ -171,12 +177,14 @@ export function switchTab(name) {
 
 function closeCard(button) {
   const card = button.closest('.card');
-  if (card) {
-    card.remove();
-  }
+  if (card) card.remove();
 }
 
 window.app = {
+  // Core
+  renderApp,
+
+  // Legacy
   copyText,
   createTicket,
   createTicketFromChat,
@@ -198,12 +206,47 @@ window.app = {
   submitKnowledge,
   submitReleaseNote,
   submitSolution,
-  switchRole,
   switchTab,
   testDesensitize,
   closeCard,
+
+  // Session workspace
+  loadAgentSessions,
+  renderCSQuery,
+  renderCSTickets,
+  renderDesensitize,
+  renderRDEscalations,
+  renderRDSubmitSolution,
+  renderRDReleaseNotes,
+  renderRDKnowledge,
+  openSession,
+  sendReply,
+  askAIAssistant,
+  escalateSession,
+  acceptEscalation,
+  escalateFromAI,
+  endService,
+  retryAI,
+  closeAIPanel,
+  backToSessionList,
+  refreshSessions,
+  scrollChatBottom,
 };
+
+function autoLoginFromPath() {
+  const path = location.pathname.replace(/\/$/, '');
+  const roleMap = { '/cs': 'cs', '/rd': 'rd', '/doc': 'doc', '/manager': 'manager' };
+  const role = roleMap[path];
+  if (role) {
+    login(role);
+    return true;
+  }
+  return false;
+}
 
 setRenderApp(renderApp);
 setUnauthorizedHandler(handleUnauthorized);
-void checkAuth();
+
+if (!autoLoginFromPath()) {
+  void checkAuth();
+}

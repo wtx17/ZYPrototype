@@ -6,8 +6,16 @@ export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
 
+function getSessionId() {
+  return sessionStorage.getItem('session_id') || '';
+}
+
 export async function api(path, opts = {}) {
-  const response = await fetch(path, {
+  const sid = getSessionId();
+  const sep = path.includes('?') ? '&' : '?';
+  const url = sid ? `${path}${sep}session_id=${encodeURIComponent(sid)}` : path;
+
+  const response = await fetch(url, {
     credentials: 'same-origin',
     ...opts,
   });

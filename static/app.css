@@ -616,3 +616,158 @@ tr:last-child td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==================== Session List ==================== */
+
+.session-row {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.session-row:hover {
+  background: rgba(0,122,255,0.04);
+}
+
+.session-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.session-id {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--primary);
+}
+
+.session-title {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.session-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ==================== Agent Chat Messages ==================== */
+
+.msg-row {
+  margin-bottom: 16px;
+}
+
+.msg-customer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.msg-agent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.msg-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  display: flex;
+  gap: 8px;
+}
+
+.msg-sender {
+  font-weight: 500;
+}
+
+.msg-time {
+  opacity: 0.7;
+}
+
+.msg-bubble {
+  max-width: 80%;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.bubble-customer {
+  background: rgba(255,255,255,0.8);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble-agent {
+  background: rgba(0,122,255,0.9);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.msg-system {
+  text-align: center;
+  margin: 12px 0;
+}
+
+.msg-system-text {
+  display: inline-block;
+  background: rgba(0,0,0,0.06);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+}
+
+/* ==================== AI Panel ==================== */
+
+.ai-panel {
+  flex: 0 0 70%;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255,255,255,0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 16px;
+  padding: 20px;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.ai-panel-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ai-answer-box {
+  background: rgba(255,255,255,0.6);
+  border-radius: 12px;
+  padding: 16px;
+  line-height: 1.7;
+  font-size: 14px;
+  flex: 1;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+/* ==================== Action Bar ==================== */
+
+.action-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}

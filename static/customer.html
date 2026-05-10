@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智云科技 · 在线客服</title>
+<link rel="stylesheet" href="/static/customer.css">
+</head>
+<body>
+<div id="customer-app">
+  <div class="chat-header">
+    <div class="header-title">智云科技 · 在线客服</div>
+    <div class="header-status" id="statusIndicator">连接中...</div>
+  </div>
+  <div class="chat-messages" id="chatMessages">
+    <div class="welcome-msg">欢迎使用智云科技在线客服，请描述您的问题</div>
+  </div>
+  <div class="chat-input-area" id="chatInputArea">
+    <textarea id="messageInput" rows="2" placeholder="输入您的问题..."
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+  </div>
+  <div class="feedback-area" id="feedbackArea" style="display:none;">
+    <div class="feedback-title">您的问题是否已解决？</div>
+    <div class="feedback-buttons">
+      <button class="feedback-btn yes" onclick="submitFeedback('yes')">✓</button>
+      <button class="feedback-btn no" onclick="submitFeedback('no')">✗</button>
+    </div>
+    <textarea id="feedbackText" class="feedback-textarea" rows="2" placeholder="补充反馈（可选）..."></textarea>
+    <button class="feedback-submit" onclick="submitFeedbackWithText()">提交反馈</button>
+  </div>
+</div>
+<script type="module" src="/static/js/customer.js"></script>
+</body>
+</html>

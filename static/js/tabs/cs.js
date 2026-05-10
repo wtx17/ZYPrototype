@@ -1,219 +1,109 @@
 import { api } from '../api.js';
-import { state, resetChatState } from '../state.js';
-import { escHtml, stripHtml, toast } from '../utils.js';
-import { loadTickets } from '../features/tickets.js';
+import { state } from '../state.js';
+import { escHtml, toast, stripHtml } from '../utils.js';
+import { loadAgentSessions, renderSessionList, renderSessionWorkspace } from '../agent-workspace.js';
 
-function renderChatBubble(message) {
-  const isUser = message.role === 'user';
-  return `
-    <div style="display:flex;gap:10px;margin-bottom:16px;justify-content:${isUser ? 'flex-end' : 'flex-start'};">
-      <div style="max-width:80%;padding:12px 18px;border-radius:18px;font-size:14px;line-height:1.6;
-        ${isUser
-          ? 'background:rgba(0,122,255,0.9);color:#fff;border-bottom-right-radius:6px;'
-          : 'background:rgba(255,255,255,0.8);color:var(--text);border-bottom-left-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.04);'}">
-        ${isUser ? escHtml(message.content) : message.content}
-      </div>
-    </div>`;
-}
+// ==================== Main Tab Renderer ====================
 
 export function renderCSQuery() {
-  const historyHtml = state.chatHistory.length === 0
-    ? '<div class="empty">开始对话 — 输入客户问题，AI 将基于 D1 公开知识库回答</div>'
-    : state.chatHistory.map((message) => renderChatBubble(message)).join('');
-
-  return `
-    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:500px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h3 style="margin:0;">AI 智能对话 (Process 1)</h3>
-        <div style="display:flex;gap:8px;">
-          <button class="btn-sm" onclick="app.newChat()">新对话</button>
-          <button class="btn-sm" onclick="app.createTicketFromChat()" ${state.chatHistory.length === 0 ? 'disabled' : ''}>转为工单</button>
-        </div>
-      </div>
-      <div class="section-label">多轮对话模式。AI 从 D1 知识库检索，D2 仅做存在性提示不泄露内容。工单需手动创建。</div>
-      <div id="chatMessages" style="flex:1;overflow-y:auto;padding:8px 0;">${historyHtml}</div>
-      <div style="display:flex;gap:10px;margin-top:12px;border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;">
-        <textarea id="chatInput" rows="2" placeholder="输入客户问题..." style="flex:1;"
-          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.submitChat();}"></textarea>
-        <button class="btn btn-primary" onclick="app.submitChat()" style="align-self:flex-end;">发送</button>
-      </div>
-    </div>`;
+  // If viewing a specific session, show workspace
+  if (state.activeSessionId && state.activeSession) {
+    return renderSessionWorkspace();
+  }
+  // Otherwise show session list
+  return renderSessionList();
 }
 
-export function newChat() {
-  resetChatState();
-  refreshChatUI();
+// ==================== Session Tab Helper ====================
+
+export async function initCSSessions() {
+  await loadAgentSessions();
+  // Set up WebSocket handlers for real-time updates
+  const { setHandler, connectAgentWsWithRetry, getSessionId } = await import('../websocket.js');
+  const sessionId = getSessionId();
+  if (sessionId) {
+    connectAgentWsWithRetry(sessionId);
+  }
+
+  // Polling backup: refresh session list every 5 seconds
+  if (window._csPollInterval) clearInterval(window._csPollInterval);
+  window._csPollInterval = setInterval(() => loadAgentSessions(), 5000);
+
+  setHandler('customer_message', (payload) => {
+    // A new customer message arrived - refresh session list
+    loadAgentSessions();
+    // If we're viewing this ticket's session, update messages
+    if (state.activeSessionId === payload.ticket_id) {
+      reloadWorkspaceMessages(payload.ticket_id);
+    }
+  });
+
+  setHandler('new_session', (payload) => {
+    toast(`新会话 #${payload.ticket_id}`);
+    loadAgentSessions();
+  });
+
+  setHandler('escalation_transfer', (payload) => {
+    toast(`工单 #${payload.ticket_id} 已升级至研发`);
+    if (state.activeSessionId === payload.ticket_id) {
+      state.activeSessionId = null;
+      state.activeSession = null;
+      state.aiPanelVisible = false;
+    }
+    loadAgentSessions();
+    if (window.app) window.app.switchTab('sessions');
+  });
+
+  setHandler('ticket_closed', (payload) => {
+    if (state.activeSessionId === payload.ticket_id) {
+      state.activeSessionId = null;
+      state.activeSession = null;
+      state.aiPanelVisible = false;
+    }
+    loadAgentSessions();
+    if (window.app) window.app.switchTab('sessions');
+  });
+
+  setHandler('ai_response', (payload) => {
+    state.aiQueryResult = {
+      answer_text: payload.answer_text,
+      confidence_score: payload.confidence_score,
+      confidence_label: payload.confidence_label,
+      citations: payload.citations,
+      d2_match_found: payload.d2_match_found,
+      d2_hint: payload.d2_hint,
+      escalation_required: payload.escalation_required,
+      query_text: payload.query_text,
+    };
+    // Auto-fill the AI answer into the input box
+    const input = document.getElementById('sessionReplyInput');
+    if (input && payload.answer_text) {
+      input.value = payload.answer_text;
+    }
+    if (window.app) window.app.switchTab('sessions');
+  });
+
+  setHandler('new_escalation', (payload) => {
+    toast(`新升级工单 #${payload.ticket_id}`);
+  });
 }
 
-export async function submitChat() {
-  const input = document.getElementById('chatInput');
-  if (!input) {
-    return;
-  }
-
-  const text = input.value.trim();
-  if (!text) {
-    return;
-  }
-
-  input.value = '';
-  input.disabled = true;
-
-  state.chatHistory.push({ role: 'user', content: text });
-  refreshChatUI();
-  scrollChatBottom();
-
+async function reloadWorkspaceMessages(ticketId) {
   try {
-    const response = await api('/api/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query_text: text,
-        ticket_id: null,
-        history: state.chatHistory.slice(0, -1),
-      }),
-    });
-
-    if (!response.success) {
-      state.chatHistory.push({
-        role: 'assistant',
-        content: `查询失败: ${escHtml(response.error || '未知错误')}`,
-      });
-    } else {
-      const data = response.data;
-      const confidenceColor = data.confidence_label === 'green'
-        ? 'rgba(52,199,89,0.2)'
-        : data.confidence_label === 'yellow'
-          ? 'rgba(255,204,0,0.2)'
-          : 'rgba(255,59,48,0.2)';
-      const textColor = data.confidence_label === 'green'
-        ? '#34c759'
-        : data.confidence_label === 'yellow'
-          ? '#ffcc00'
-          : '#ff3b30';
-
-      let metaHtml = '<div style="margin-top:6px;font-size:11px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
-      metaHtml += `<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;background:${confidenceColor};color:${textColor};">${escHtml(data.confidence_label.toUpperCase())} ${(data.confidence_score * 100).toFixed(0)}%</span>`;
-
-      if (data.d2_match_found) {
-        metaHtml += `<span style="color:#b36800;font-weight:600;font-size:10px;">⚠️ ${escHtml(data.d2_hint || '建议升级工单')}</span>`;
-      }
-      if (data.is_blocked) {
-        metaHtml += `<span style="color:#ff3b30;font-weight:600;font-size:10px;">已拦截: ${escHtml(data.block_reason || '')}</span>`;
-      }
-      metaHtml += '</div>';
-
-      let content = escHtml(data.answer_text || '(无回答)');
-      if (data.citations && data.citations.length > 0) {
-        content += '<div style="margin-top:8px;font-size:11px;opacity:0.7;border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;">📎 引用: ';
-        content += data.citations.map((citation, index) => `${index + 1}. ${escHtml(citation.doc_title)}`).join('; ');
-        content += '</div>';
-      }
-      content += metaHtml;
-
-      state.chatHistory.push({ role: 'assistant', content });
+    const data = await api(`/api/tickets/${ticketId}/messages`);
+    state.sessionMessages = data.data || [];
+    const container = document.getElementById('sessionChatMessages');
+    if (container) {
+      const { renderMessages } = await import('../agent-chat.js');
+      container.innerHTML = renderMessages(state.sessionMessages);
+      container.scrollTop = container.scrollHeight;
     }
-  } catch (error) {
-    state.chatHistory.push({
-      role: 'assistant',
-      content: `网络错误: ${escHtml(error.message)}`,
-    });
-  } finally {
-    input.disabled = false;
-    input.focus();
-    refreshChatUI();
-    scrollChatBottom();
+  } catch (e) {
+    // ignore
   }
 }
 
-export function scrollChatBottom() {
-  setTimeout(() => {
-    const element = document.getElementById('chatMessages');
-    if (element) {
-      element.scrollTop = element.scrollHeight;
-    }
-  }, 100);
-}
-
-function refreshChatUI() {
-  const container = document.getElementById('chatMessages');
-  if (!container) {
-    return;
-  }
-
-  if (state.chatHistory.length === 0) {
-    container.innerHTML = '<div class="empty">开始对话 — 输入客户问题，AI 将基于 D1 公开知识库回答</div>';
-  } else {
-    container.innerHTML = state.chatHistory.map((message) => renderChatBubble(message)).join('');
-  }
-
-  const ticketButton = document.querySelector('button[onclick="app.createTicketFromChat()"]');
-  if (ticketButton) {
-    ticketButton.disabled = state.chatHistory.length === 0;
-  }
-}
-
-export async function createTicketFromChat() {
-  if (state.chatHistory.length === 0) {
-    toast('没有对话内容', 'error');
-    return;
-  }
-
-  const firstMessage = state.chatHistory.find((message) => message.role === 'user');
-  const title = firstMessage ? stripHtml(firstMessage.content).substring(0, 80) : '对话记录';
-  const description = state.chatHistory
-    .map((message) => `[${message.role === 'user' ? '客服' : 'AI'}]: ${stripHtml(message.content)}`)
-    .join('\n\n');
-
-  const response = await api('/api/tickets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, description, created_by: 'cs' }),
-  });
-
-  toast(`工单 #${response.ticket_id} 已创建，请前往工单管理查看`);
-}
-
-export function renderCSTickets() {
-  return `
-    <div class="card">
-      <h3>创建工单</h3>
-      <input type="text" id="ticketTitle" placeholder="工单标题" style="margin-bottom:8px;">
-      <textarea id="ticketDesc" rows="2" placeholder="客户问题描述..."></textarea>
-      <div class="btn-group"><button class="btn btn-primary" onclick="app.createTicket()">创建工单</button></div>
-    </div>
-    <div class="card">
-      <h3>工单列表 (Process 7)</h3>
-      <button class="btn btn-outline" onclick="app.loadTickets()" style="margin-bottom:12px;">刷新列表</button>
-      <div id="csTicketList"><div class="empty">点击刷新加载工单</div></div>
-    </div>`;
-}
-
-export async function createTicket() {
-  const titleInput = document.getElementById('ticketTitle');
-  const descInput = document.getElementById('ticketDesc');
-  if (!titleInput || !descInput) {
-    return;
-  }
-
-  const title = titleInput.value.trim();
-  const description = descInput.value.trim();
-  if (!title) {
-    toast('请输入标题', 'error');
-    return;
-  }
-
-  await api('/api/tickets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, description, created_by: 'cs' }),
-  });
-
-  toast('工单已创建');
-  titleInput.value = '';
-  descInput.value = '';
-  await loadTickets();
-}
+// ==================== Legacy: Desensitize Tool ====================
 
 export function renderDesensitize() {
   return `
@@ -228,15 +118,10 @@ export function renderDesensitize() {
 export async function testDesensitize() {
   const input = document.getElementById('desensitizeInput');
   const result = document.getElementById('desensitizeResult');
-  if (!input || !result) {
-    return;
-  }
+  if (!input || !result) return;
 
   const text = input.value.trim();
-  if (!text) {
-    toast('请输入文本', 'error');
-    return;
-  }
+  if (!text) { toast('请输入文本', 'error'); return; }
 
   const data = await api('/api/desensitize', {
     method: 'POST',
@@ -250,4 +135,30 @@ export async function testDesensitize() {
       <div class="section-label" style="margin-top:12px;">脱敏后</div><div class="answer-box" style="background:#f0fdf4;">${escHtml(data.desensitized)}</div>
       <div style="margin-top:8px;font-size:12px;color:var(--muted);">共脱敏 ${data.changes} 处敏感信息</div>
     </div>`;
+}
+
+// ==================== Legacy: Tickets ====================
+
+export function renderCSTickets() {
+  return `
+    <div class="card">
+      <h3>工单列表 (Process 7)</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">工单由系统在客户发起会话时自动创建</p>
+      <button class="btn btn-outline" onclick="app.loadTickets()" style="margin-bottom:12px;">刷新列表</button>
+      <div id="csTicketList"><div class="empty">点击刷新加载工单</div></div>
+    </div>`;
+}
+
+export async function createTicket() {
+  // Manual creation is no longer needed — tickets are auto-created by sessions.
+  toast('工单由系统自动创建，无需手动操作');
+}
+
+// Deprecated legacy exports (kept for backward compat with main.js)
+export function newChat() { /* no-op: use WebSocket sessions */ }
+export function submitChat() { /* no-op: use WebSocket sessions */ }
+export function createTicketFromChat() { /* no-op: tickets auto-created via sessions */ }
+export function scrollChatBottom() {
+  const el = document.getElementById('sessionChatMessages');
+  if (el) el.scrollTop = el.scrollHeight;
 }

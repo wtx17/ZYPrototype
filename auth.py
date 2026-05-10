@@ -45,7 +45,7 @@ def destroy_session(session_id: str):
 
 
 async def require_role(request: Request, allowed_roles: list[str]) -> dict:
-    session_id = request.cookies.get("session_id")
+    session_id = _extract_session_id(request)
     if not session_id:
         raise HTTPException(status_code=401, detail="未登录")
     session = get_session(session_id)
@@ -57,7 +57,15 @@ async def require_role(request: Request, allowed_roles: list[str]) -> dict:
 
 
 async def get_current_session(request: Request) -> Optional[dict]:
-    session_id = request.cookies.get("session_id")
+    session_id = _extract_session_id(request)
     if not session_id:
         return None
     return get_session(session_id)
+
+
+def _extract_session_id(request: Request) -> Optional[str]:
+    """Extract session_id from query param first, then cookie."""
+    sid = request.query_params.get("session_id") or request.query_params.get("sid")
+    if sid:
+        return sid
+    return request.cookies.get("session_id")

@@ -17,7 +17,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 from datetime import datetime
+from urllib.parse import parse_qs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +27,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -44,6 +46,11 @@ from models import (
     DesensitizeResponse,
     SystemMetrics,
     QueryResponse,
+    CustomerTokenRequest,
+    CustomerTokenResponse,
+    SatisfactionSubmit,
+    MessageOut,
+    ChatMessage,
 )
 from database import (
     insert_ticket,
@@ -63,13 +70,28 @@ from database import (
     get_ai_knowledge,
     list_rd_knowledge,
     get_metrics,
+    insert_message,
+    get_messages,
+    get_last_message_id,
+    insert_satisfaction_feedback,
+    get_satisfaction_feedback,
+    assign_ticket_cs,
+    assign_ticket_rd,
+    update_ticket_customer,
+    end_ticket_service,
+    list_active_tickets_for_agent,
+    update_ticket_status as db_update_ticket_status,
 )
 from agent import query_ai
 from desensitizer import desensitize
 from knowledge_store import add_to_ai_knowledge as chroma_add_ai, add_to_rd_knowledge as chroma_add_rd
-from auth import create_session, destroy_session, get_current_session, require_role
+from auth import create_session, destroy_session, get_current_session, require_role, get_session
+from ws_manager import clients as ws_clients
 
-app = FastAPI(title="智云科技 AI 知识库系统", version="0.2.0")
+app = FastAPI(title="智云科技 AI 知识库系统", version="0.3.0")
+
+# In-memory customer token store
+_customer_tokens: dict[str, str] = {}  # token -> customer_id
 
 # --- Static files ---
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -85,6 +107,41 @@ async def root():
     return {"message": "智云科技 AI 知识库系统 API", "docs": "/docs"}
 
 
+@app.get("/cs")
+async def cs_page():
+    return await _serve_index()
+
+
+@app.get("/rd")
+async def rd_page():
+    return await _serve_index()
+
+
+@app.get("/doc")
+async def doc_page():
+    return await _serve_index()
+
+
+@app.get("/manager")
+async def manager_page():
+    return await _serve_index()
+
+
+async def _serve_index():
+    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "Page not found"}, 404
+
+
+@app.get("/customer")
+async def customer_page():
+    customer_path = os.path.join(os.path.dirname(__file__), "static", "customer.html")
+    if os.path.exists(customer_path):
+        return FileResponse(customer_path)
+    return {"message": "Customer chat page not found"}, 404
+
+
 # ==================== Auth ====================
 
 @app.post("/api/auth/login")
@@ -93,7 +150,7 @@ async def login(data: LoginRequest, response: Response):
         raise HTTPException(status_code=400, detail="无效的角色")
     session_id = create_session(data.role, data.username)
     response.set_cookie(key="session_id", value=session_id, httponly=True, max_age=86400)
-    return {"success": True, "role": data.role, "username": data.username}
+    return {"success": True, "role": data.role, "username": data.username, "session_id": session_id}
 
 
 @app.get("/api/auth/me")
@@ -394,6 +451,308 @@ async def desensitize_text(req: DesensitizeRequest):
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+# ==================== Customer Token ====================
+
+@app.post("/api/customer/token")
+async def generate_customer_token(data: CustomerTokenRequest = None):
+    """Generate an anonymous customer token for WebSocket connection."""
+    token = secrets.token_urlsafe(16)
+    customer_id = f"customer_{token[:8]}"
+    name = data.customer_name if data else "游客"
+    _customer_tokens[token] = customer_id
+    return CustomerTokenResponse(token=token, customer_id=customer_id)
+
+
+# ==================== Messages ====================
+
+@app.get("/api/tickets/{ticket_id}/messages")
+async def get_ticket_messages(ticket_id: int, after: int = 0, request: Request = None):
+    """Get messages for a ticket (used by agents and customers)."""
+    msgs = get_messages(ticket_id, after_id=after, limit=100)
+    return {
+        "success": True,
+        "data": [
+            MessageOut(
+                id=m["id"],
+                ticket_id=m["ticket_id"],
+                sender_type=m["sender_type"],
+                sender_name=m["sender_name"] or "",
+                content=m["content"],
+                created_at=m["created_at"],
+            ) for m in msgs
+        ],
+        "last_id": msgs[-1]["id"] if msgs else after,
+    }
+
+
+# ==================== Agent Message (REST fallback) ====================
+
+@app.post("/api/tickets/{ticket_id}/send-message")
+async def send_agent_message(ticket_id: int, data: dict, request: Request):
+    """CS or RD sends a message via REST (WebSocket fallback)."""
+    session = await require_role(request, ["cs", "rd"])
+    content = data.get("content", "")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    # RD can only message escalated tickets
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    if session["role"] == "rd" and not ticket.get("escalated_to_rd"):
+        raise HTTPException(status_code=403, detail="该工单未升级，无法回复")
+
+    await ws_clients.handle_agent_message(ticket_id, content, session["role"], session["username"])
+    return {"success": True}
+
+
+# ==================== Service Lifecycle ====================
+
+@app.post("/api/tickets/{ticket_id}/end-service")
+async def end_service(ticket_id: int, request: Request):
+    """CS or RD ends service. Triggers satisfaction survey on customer side."""
+    session = await require_role(request, ["cs", "rd"])
+    await ws_clients.handle_service_end(ticket_id)
+    return {"success": True, "message": "服务已结束"}
+
+
+@app.post("/api/tickets/{ticket_id}/satisfaction")
+async def submit_satisfaction(ticket_id: int, data: SatisfactionSubmit):
+    """Customer submits satisfaction feedback."""
+    await ws_clients.handle_satisfaction(ticket_id, data.resolved, data.feedback_text)
+    return {"success": True, "message": "感谢您的反馈"}
+
+
+# ==================== Agent Session Lists ====================
+
+@app.get("/api/cs/sessions")
+async def get_cs_sessions(request: Request):
+    """CS gets their active ticket/session list."""
+    session = await require_role(request, ["cs"])
+    tickets = list_active_tickets_for_agent(session["username"], "cs")
+    return {"success": True, "data": tickets, "count": len(tickets)}
+
+
+@app.get("/api/rd/sessions")
+async def get_rd_sessions(request: Request):
+    """RD gets escalated ticket/session list."""
+    session = await require_role(request, ["rd"])
+    tickets = list_active_tickets_for_agent(session["username"], "rd")
+    return {"success": True, "data": tickets, "count": len(tickets)}
+
+
+@app.get("/api/sessions/{ticket_id}")
+async def get_session_detail(ticket_id: int, request: Request):
+    """Get full session detail including messages."""
+    session = await require_role(request, ["cs", "rd"])
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    msgs = get_messages(ticket_id)
+    return {
+        "success": True,
+        "data": {
+            "ticket": ticket,
+            "messages": [
+                MessageOut(
+                    id=m["id"],
+                    ticket_id=m["ticket_id"],
+                    sender_type=m["sender_type"],
+                    sender_name=m["sender_name"] or "",
+                    content=m["content"],
+                    created_at=m["created_at"],
+                ) for m in msgs
+            ],
+        },
+    }
+
+
+# ==================== WebSocket ====================
+
+@app.websocket("/ws/customer")
+async def ws_customer(websocket: WebSocket, token: str = ""):
+    """Customer WebSocket connection."""
+    if not token or token not in _customer_tokens:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    customer_id = _customer_tokens[token]
+    await websocket.accept()
+
+    try:
+        ticket_id = await ws_clients.register_customer(customer_id, websocket)
+    except Exception as e:
+        await websocket.close(code=4002, reason=str(e))
+        return
+
+    # Send welcome with ticket_id
+    await websocket.send_json({
+        "type": "connected",
+        "payload": {"customer_id": customer_id, "ticket_id": ticket_id},
+    })
+
+    # Auto-greeting: check if CS is assigned
+    cs_name = ws_clients.ticket_cs.get(ticket_id)
+    if cs_name:
+        greeting = f"客服 {cs_name} 为您服务，正在查询解决方案"
+        insert_message(ticket_id, "system", "系统", greeting)
+        await websocket.send_json({
+            "type": "system_message",
+            "payload": {"ticket_id": ticket_id, "content": greeting},
+        })
+
+        # Notify CS about new session
+        ticket = get_ticket(ticket_id)
+        await ws_clients.send_to_cs(ticket_id, {
+            "type": "new_session",
+            "payload": {
+                "ticket_id": ticket_id,
+                "title": ticket.get("title", "") if ticket else "",
+                "customer_id": customer_id,
+            },
+        })
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+            payload = data.get("payload", {})
+
+            if msg_type == "customer_message":
+                content = payload.get("content", "")
+                if content.strip():
+                    await ws_clients.handle_customer_message(ticket_id, content, customer_id)
+
+            elif msg_type == "satisfaction":
+                resolved = payload.get("resolved", "")
+                feedback_text = payload.get("feedback_text", "")
+                await ws_clients.handle_satisfaction(ticket_id, resolved, feedback_text)
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong", "payload": {}})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        await ws_clients.unregister_customer(customer_id)
+
+
+@app.websocket("/ws/agent")
+async def ws_agent(websocket: WebSocket, session_id: str = ""):
+    """CS/RD agent WebSocket connection. Auth via session_id query param."""
+    if not session_id:
+        await websocket.close(code=4001, reason="Missing session_id")
+        return
+
+    sess = get_session(session_id)
+    if not sess:
+        await websocket.close(code=4001, reason="Invalid session")
+        return
+
+    role = sess["role"]
+    username = sess["username"]
+
+    if role not in ("cs", "rd"):
+        await websocket.close(code=4003, reason="Unauthorized role")
+        return
+
+    await websocket.accept()
+
+    try:
+        if role == "cs":
+            await ws_clients.register_cs(username, websocket)
+        else:
+            await ws_clients.register_rd(username, websocket)
+    except Exception as e:
+        await websocket.close(code=4002, reason=str(e))
+        return
+
+    await websocket.send_json({
+        "type": "connected",
+        "payload": {"role": role, "username": username},
+    })
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+            payload = data.get("payload", {})
+
+            if msg_type == "agent_message":
+                ticket_id = payload.get("ticket_id")
+                content = payload.get("content", "")
+                if ticket_id and content.strip():
+                    # RD can only message escalated tickets
+                    ticket = get_ticket(ticket_id)
+                    if role == "rd" and ticket and not ticket.get("escalated_to_rd"):
+                        await websocket.send_json({"type": "error", "payload": {"message": "该工单未升级，无法回复"}})
+                    else:
+                        await ws_clients.handle_agent_message(ticket_id, content, role, username)
+
+            elif msg_type == "ai_request":
+                ticket_id = payload.get("ticket_id")
+                if ticket_id:
+                    ticket = get_ticket(ticket_id)
+                    customer_msg = ""
+                    if ticket:
+                        msgs = get_messages(ticket_id)
+                        for m in msgs:
+                            if m["sender_type"] == "customer":
+                                customer_msg = m["content"]
+                                break
+                        if not customer_msg:
+                            customer_msg = ticket.get("description", "")
+
+                    response: AIResponse = query_ai(
+                        customer_msg or payload.get("query_text", ""),
+                        ticket_id=ticket_id,
+                        role=role,
+                        history=[],
+                    )
+                    ai_payload = {
+                        "ticket_id": ticket_id,
+                        "answer_text": response.answer_text,
+                        "confidence_score": response.confidence_score,
+                        "confidence_label": response.confidence_label.value if hasattr(response.confidence_label, 'value') else response.confidence_label,
+                        "citations": [c.model_dump() for c in response.citations],
+                        "d2_match_found": response.d2_match_found,
+                        "d2_hint": response.d2_hint,
+                        "escalation_required": response.escalation_required,
+                    }
+                    await websocket.send_json({"type": "ai_response", "payload": ai_payload})
+
+            elif msg_type == "escalate":
+                ticket_id = payload.get("ticket_id")
+                reason = payload.get("reason", "")
+                if ticket_id:
+                    await ws_clients.handle_escalate(ticket_id, reason)
+
+            elif msg_type == "accept_escalation":
+                ticket_id = payload.get("ticket_id")
+                if ticket_id and role == "rd":
+                    await ws_clients.handle_rd_accept(ticket_id, username)
+
+            elif msg_type == "service_end":
+                ticket_id = payload.get("ticket_id")
+                if ticket_id:
+                    await ws_clients.handle_service_end(ticket_id)
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong", "payload": {}})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if role == "cs":
+            await ws_clients.unregister_cs(username)
+        else:
+            await ws_clients.unregister_rd(username)
 
 
 if __name__ == "__main__":

@@ -45,3 +45,7 @@ RD_COLLECTION = "rd_knowledge"
 
 # --- Database ---
 SQLITE_PATH = "./knowledge_system.db"
+
+# --- Real-time Messaging ---
+CS_ASSIGN_TIMEOUT = 30  # seconds to wait for CS assignment before auto-escalation
+MAX_MESSAGE_HISTORY = 100  # max messages to return per session

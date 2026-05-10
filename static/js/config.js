@@ -1,5 +1,5 @@
 export const roleTabs = {
-  cs: ['query', 'tickets', 'desensitize'],
+  cs: ['sessions', 'tickets', 'desensitize'],
   rd: ['escalations', 'submit-solution', 'release-notes', 'rd-knowledge'],
   doc: ['submit-knowledge', 'review-knowledge'],
   manager: ['dashboard', 'all-tickets'],
@@ -28,7 +28,7 @@ export const statusLabels = {
 };
 
 export const tabLabels = {
-  query: 'AI 查询 (P1)',
+  sessions: '在线服务',
   tickets: '工单管理 (P7)',
   desensitize: '脱敏工具 (P6)',
   escalations: '升级工单 (P4/P5)',

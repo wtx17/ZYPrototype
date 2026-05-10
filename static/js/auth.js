@@ -21,6 +21,12 @@ export async function login(role) {
   state.currentTab = null;
   state.chatHistory = [];
   state.conversationId = null;
+
+  // Store session_id in sessionStorage (per-tab) for multi-role support
+  if (data.session_id) {
+    sessionStorage.setItem('session_id', data.session_id);
+  }
+
   renderApp();
 }
 
@@ -34,6 +40,7 @@ export async function logout() {
     // Ignore logout network failures and clear local state anyway.
   }
 
+  sessionStorage.removeItem('session_id');
   resetState();
   renderApp();
 }

@@ -60,8 +60,28 @@ def _init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL,
+            sender_type TEXT NOT NULL CHECK(sender_type IN ('customer', 'cs', 'rd', 'system')),
+            sender_name TEXT,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS satisfaction_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL,
+            resolved TEXT,
+            feedback_text TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     _conn.commit()
+
+    # Add new columns to tickets (idempotent)
+    _migrate_tickets(c)
 
 
 # --- D1: AI Knowledge ---
@@ -234,6 +254,139 @@ def add_handling_record(ticket_id: int, notes: str) -> bool:
     )
     _conn.commit()
     return True
+
+
+def _migrate_tickets(c):
+    """Add new columns to tickets table if they don't exist."""
+    new_cols = [
+        ("assigned_cs", "TEXT"),
+        ("assigned_rd", "TEXT"),
+        ("customer_id", "TEXT"),
+        ("service_ended", "INTEGER DEFAULT 0"),
+    ]
+    existing = {row[1] for row in c.execute("PRAGMA table_info(tickets)").fetchall()}
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            c.execute(f"ALTER TABLE tickets ADD COLUMN {col_name} {col_type}")
+    _conn.commit()
+
+
+# --- Messages ---
+
+def insert_message(ticket_id: int, sender_type: str, sender_name: str, content: str) -> int:
+    c = get_conn()
+    cur = c.execute(
+        "INSERT INTO messages (ticket_id, sender_type, sender_name, content) VALUES (?, ?, ?, ?)",
+        (ticket_id, sender_type, sender_name, content),
+    )
+    _conn.commit()
+    return cur.lastrowid
+
+
+def get_messages(ticket_id: int, after_id: int = 0, limit: int = 100) -> list[dict]:
+    c = get_conn()
+    rows = c.execute(
+        "SELECT * FROM messages WHERE ticket_id = ? AND id > ? ORDER BY id ASC LIMIT ?",
+        (ticket_id, after_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_last_message_id(ticket_id: int) -> int:
+    c = get_conn()
+    row = c.execute(
+        "SELECT MAX(id) FROM messages WHERE ticket_id = ?", (ticket_id,)
+    ).fetchone()
+    return row[0] or 0
+
+
+# --- Satisfaction Feedback ---
+
+def insert_satisfaction_feedback(ticket_id: int, resolved: str, feedback_text: str = "") -> int:
+    c = get_conn()
+    cur = c.execute(
+        "INSERT INTO satisfaction_feedback (ticket_id, resolved, feedback_text) VALUES (?, ?, ?)",
+        (ticket_id, resolved, feedback_text),
+    )
+    _conn.commit()
+    return cur.lastrowid
+
+
+def get_satisfaction_feedback(ticket_id: int) -> Optional[dict]:
+    c = get_conn()
+    row = c.execute(
+        "SELECT * FROM satisfaction_feedback WHERE ticket_id = ? ORDER BY id DESC LIMIT 1",
+        (ticket_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+# --- Ticket Assignment ---
+
+def assign_ticket_cs(ticket_id: int, cs_agent: str) -> bool:
+    c = get_conn()
+    cur = c.execute(
+        "UPDATE tickets SET assigned_cs = ?, updated_at = datetime('now') WHERE id = ?",
+        (cs_agent, ticket_id),
+    )
+    _conn.commit()
+    return cur.rowcount > 0
+
+
+def assign_ticket_rd(ticket_id: int, rd_agent: str) -> bool:
+    c = get_conn()
+    cur = c.execute(
+        "UPDATE tickets SET assigned_rd = ?, updated_at = datetime('now') WHERE id = ?",
+        (rd_agent, ticket_id),
+    )
+    _conn.commit()
+    return cur.rowcount > 0
+
+
+def update_ticket_customer(ticket_id: int, customer_id: str) -> bool:
+    c = get_conn()
+    cur = c.execute(
+        "UPDATE tickets SET customer_id = ?, updated_at = datetime('now') WHERE id = ?",
+        (customer_id, ticket_id),
+    )
+    _conn.commit()
+    return cur.rowcount > 0
+
+
+def end_ticket_service(ticket_id: int) -> bool:
+    c = get_conn()
+    cur = c.execute(
+        "UPDATE tickets SET service_ended = 1, status = 'closed', updated_at = datetime('now') WHERE id = ?",
+        (ticket_id,),
+    )
+    _conn.commit()
+    return cur.rowcount > 0
+
+
+def list_active_tickets_for_agent(agent_name: str, role: str) -> list[dict]:
+    """List active (non-closed) tickets for an agent."""
+    c = get_conn()
+    if role == "cs":
+        rows = c.execute(
+            "SELECT * FROM tickets WHERE status != 'closed' AND service_ended = 0"
+            " AND (assigned_cs = ? OR assigned_cs IS NULL OR assigned_cs = '')"
+            " ORDER BY updated_at DESC",
+            (agent_name,),
+        ).fetchall()
+    elif role == "rd":
+        rows = c.execute(
+            "SELECT * FROM tickets WHERE escalated_to_rd = 1 AND status != 'closed' AND service_ended = 0 ORDER BY updated_at DESC",
+        ).fetchall()
+    else:
+        rows = []
+    return [dict(r) for r in rows]
+
+
+def get_next_ticket_id() -> int:
+    """Get the next auto-increment ticket ID (for preview before creation)."""
+    c = get_conn()
+    row = c.execute("SELECT MAX(id) FROM tickets").fetchone()
+    return (row[0] or 0) + 1
 
 
 def get_metrics() -> dict:

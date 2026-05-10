@@ -184,3 +184,37 @@ class SystemMetrics(BaseModel):
     red_rate: float = 0
     d1_doc_count: int = 0
     d2_doc_count: int = 0
+
+
+# --- WebSocket Messaging ---
+
+class WSPacket(BaseModel):
+    type: str
+    payload: dict = {}
+
+
+class CustomerTokenRequest(BaseModel):
+    customer_name: str = "游客"
+
+
+class CustomerTokenResponse(BaseModel):
+    token: str
+    customer_id: str
+
+
+class SatisfactionSubmit(BaseModel):
+    resolved: str  # "yes" | "no" | "feedback"
+    feedback_text: str = ""
+
+
+class MessageOut(BaseModel):
+    id: int
+    ticket_id: int
+    sender_type: str
+    sender_name: str
+    content: str
+    created_at: str
+
+
+class EndServiceRequest(BaseModel):
+    pass
