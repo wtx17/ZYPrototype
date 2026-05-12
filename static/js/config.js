@@ -1,7 +1,7 @@
 export const roleTabs = {
-  cs: ['sessions', 'desensitize'],
-  rd: ['escalations', 'submit-solution', 'release-notes', 'rd-knowledge'],
-  doc: ['submit-knowledge', 'review-knowledge'],
+  cs: ['sessions', 'desensitize', 'wiki-browser'],
+  rd: ['escalations', 'wiki-browser'],
+  doc: ['wiki-browser', 'review-knowledge'],
   manager: ['dashboard', 'all-tickets'],
 };
 
@@ -31,12 +31,9 @@ export const tabLabels = {
   sessions: '在线服务',
   tickets: '工单管理 (P7)',
   desensitize: '脱敏工具 (P6)',
-  escalations: '升级工单 (P4/P5)',
-  'submit-solution': '提交方案 (P2)',
-  'release-notes': '发布 Release Notes (P3)',
-  'rd-knowledge': 'D2 知识库',
-  'submit-knowledge': '提交知识 (P6)',
-  'review-knowledge': '审核知识 (P6)',
+  escalations: '升级工单',
+  'review-knowledge': '审核知识',
+  'wiki-browser': '浏览知识库',
   dashboard: '仪表盘 (P8)',
   'all-tickets': '全部工单',
 };

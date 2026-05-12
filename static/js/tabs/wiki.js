@@ -1,0 +1,517 @@
+import { api } from '../api.js';
+import { state } from '../state.js';
+import { escHtml, formatDate, toast } from '../utils.js';
+
+let _wikiTreeData = [];
+let _wikiExpandedNodes = {};
+let _wikiCurrentSlug = null;
+let _wikiCurrentPageStatus = '';
+
+// ==================== Main Renderer ====================
+
+export function renderWikiBrowser() {
+  return `
+    <div class="wiki-container">
+      <div class="wiki-sidebar">
+        <div class="wiki-search-bar">
+          <input type="text" id="wikiSearchInput" placeholder="搜索知识库..."
+            oninput="app.searchWiki()"
+            onkeydown="if(event.key==='Escape'){this.value='';app.searchWiki();}">
+        </div>
+        ${state.role === 'doc' ? `
+          <div class="wiki-actions">
+            <button class="btn btn-primary btn-sm" onclick="app.showWikiEditor()">+ 新建页面</button>
+          </div>
+        ` : ''}
+        <div class="wiki-tree" id="wikiTree">
+          <div class="empty" style="padding:20px;">加载中...</div>
+        </div>
+      </div>
+      <div class="wiki-main" id="wikiMain">
+        <div class="wiki-welcome">
+          <h3>知识库浏览</h3>
+          <p>请从左侧目录选择文档，或使用搜索查找内容。</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ==================== Tree ====================
+
+export async function loadWikiTree() {
+  try {
+    const data = await api('/api/wiki/tree');
+    _wikiTreeData = data.data || [];
+    renderTree(_wikiTreeData);
+  } catch (e) {
+    const tree = document.getElementById('wikiTree');
+    if (tree) tree.innerHTML = '<div class="empty" style="padding:20px;">加载失败</div>';
+  }
+}
+
+function renderTree(nodes) {
+  const tree = document.getElementById('wikiTree');
+  if (!tree) return;
+
+  if (!nodes.length) {
+    tree.innerHTML = '<div class="empty" style="padding:20px;">暂无文档</div>';
+    return;
+  }
+
+  tree.innerHTML = nodes.map(n => renderTreeNode(n, 0)).join('');
+
+  // Restore expanded state
+  for (const [id, expanded] of Object.entries(_wikiExpandedNodes)) {
+    if (expanded) {
+      const el = document.getElementById('wiki-children-' + id);
+      if (el) el.style.display = 'block';
+      const toggle = document.querySelector(`[data-wiki-toggle="${id}"]`);
+      if (toggle) toggle.classList.add('expanded');
+    }
+  }
+}
+
+function renderTreeNode(node, depth) {
+  const hasChildren = node.children && node.children.length > 0;
+  const isActive = node.slug === _wikiCurrentSlug;
+  const expanded = _wikiExpandedNodes[node.id] || false;
+  const isD2 = node.source === 'd2';
+  const isD2Folder = node.source === 'd2-folder';
+  const st = node.status || '';
+  const isDraft = st === 'draft';
+  const isPending = st === 'pending_review';
+
+  return `
+    <div class="wiki-tree-node" style="padding-left:${isD2Folder ? 0 : depth * 20}px;">
+      <div class="wiki-tree-row">
+        <span class="wiki-tree-toggle ${hasChildren ? '' : 'invisible'}${expanded ? ' expanded' : ''}"
+          data-wiki-toggle="${node.id}"
+          onclick="event.stopPropagation();app.toggleTreeNode(${node.id})">▸</span>
+        <span class="wiki-tree-label ${isActive ? 'active' : ''} ${isD2Folder ? 'wiki-d2-folder' : ''} ${isDraft || isPending ? 'wiki-tree-dim' : ''}"
+          onclick="${node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : ''}">
+          ${escHtml(node.title)}
+          ${isDraft ? '<span class="wiki-tree-badge draft">草稿</span>' : ''}
+          ${isPending ? '<span class="wiki-tree-badge pending">审核</span>' : ''}
+          ${isD2 ? '<span class="wiki-d2-badge">D2</span>' : ''}
+        </span>
+      </div>
+      ${hasChildren ? `
+        <div class="wiki-tree-children" id="wiki-children-${node.id}"
+          style="display:${expanded ? 'block' : 'none'}">
+          ${node.children.map(c => renderTreeNode(c, depth + 1)).join('')}
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+export function toggleTreeNode(id) {
+  _wikiExpandedNodes[id] = !_wikiExpandedNodes[id];
+  const el = document.getElementById('wiki-children-' + id);
+  if (el) el.style.display = _wikiExpandedNodes[id] ? 'block' : 'none';
+  const toggle = document.querySelector(`[data-wiki-toggle="${id}"]`);
+  if (toggle) toggle.classList.toggle('expanded', _wikiExpandedNodes[id]);
+}
+
+// ==================== Page Viewing ====================
+
+export async function loadWikiPage(slug) {
+  if (!slug) return;
+  _wikiCurrentSlug = slug;
+  _wikiCurrentPageStatus = '';
+
+  // Update tree highlight
+  const tree = document.getElementById('wikiTree');
+  if (tree) {
+    tree.querySelectorAll('.wiki-tree-label').forEach(l => l.classList.remove('active'));
+    const activeLabel = tree.querySelector(`[onclick*="${slug}"]`);
+    if (activeLabel) activeLabel.classList.add('active');
+  }
+
+  const main = document.getElementById('wikiMain');
+  if (!main) return;
+
+  try {
+    const data = await api('/api/wiki/' + encodeURIComponent(slug));
+    const page = data.data;
+    if (!page) {
+      main.innerHTML = '<div class="empty" style="padding:40px;">页面不存在</div>';
+      return;
+    }
+
+    _wikiCurrentPageStatus = page.status || '';
+
+    const isD2 = page.source === 'd2';
+    const st = page.status || '';
+    const role = state.role;
+    const isLocked = st === 'pending_review';
+    // doc can edit all; rd can edit D2; both blocked by pending_review
+    const canEdit = !isLocked && (role === 'doc' || (role === 'rd' && isD2));
+
+    const statusBadge = st === 'draft'
+      ? '<span class="wiki-status-tag draft">草稿</span>'
+      : st === 'pending_review'
+        ? '<span class="wiki-status-tag pending">审核中</span>'
+        : '';
+
+    const actionButtons = canEdit
+      ? (st === 'draft'
+          ? `<button class="btn-sm btn-primary" onclick="app.submitPageForReview(${page.id})">提交审核</button>
+             <button class="btn-sm" onclick="app.showWikiEditor(${page.id})">编辑</button>
+             <button class="btn-sm" style="color:var(--red);" onclick="app.deleteWikiPage(${page.id})">删除</button>`
+          : `<button class="btn-sm" onclick="app.showWikiEditor(${page.id})">编辑</button>
+             <button class="btn-sm" style="color:var(--red);" onclick="app.deleteWikiPage(${page.id})">删除</button>`)
+      : (isLocked && (role === 'doc' || role === 'rd')
+          ? '<span style="flex:1;text-align:right;font-size:12px;color:var(--muted);">审核中，无法编辑</span>' : '');
+
+    const metaTags = [
+      isD2 ? '<span class="wiki-d2-label">研发知识库 (D2)</span>' : '',
+      statusBadge,
+      page.version ? `<span>版本: ${escHtml(page.version)}</span>` : '',
+      page.entry_type ? `<span>类型: ${escHtml(page.entry_type === 'solution' ? '技术方案' : page.entry_type === 'release_note' ? '发布说明' : page.entry_type)}</span>` : '',
+      page.keywords ? `<span>关键词: ${escHtml(page.keywords)}</span>` : '',
+    ].filter(Boolean).join('');
+
+    main.innerHTML = `
+      <div class="wiki-page-header">
+        <h2>${escHtml(page.title)}</h2>
+        <div class="wiki-meta">
+          ${metaTags}
+          <span>更新: ${formatDate(page.updated_at)}</span>
+          <span>负责人: ${escHtml(page.owner || '-')}</span>
+          ${actionButtons ? `<span style="flex:1;"></span>${actionButtons}` : ''}
+        </div>
+        ${page.release_note ? `<div class="wiki-release-note">📋 ${escHtml(page.release_note)}</div>` : ''}
+      </div>
+      ${isD2 ? '<div class="wiki-d2-disclaimer">此文档来自研发知识库，未经文档团队审核，请谨慎使用。</div>' : ''}
+      ${st === 'draft' ? '<div class="wiki-draft-notice">此页面为草稿，仅文档团队可见。编辑完成后请提交审核。</div>' : ''}
+      ${st === 'pending_review' ? '<div class="wiki-draft-notice">此页面正在审核中，审核通过后将对全员可见。</div>' : ''}
+      <div class="wiki-markdown wiki-content">${renderMarkdown(page.content)}</div>
+    `;
+
+    // Wire up internal wiki links for SPA navigation
+    const contentEl = main.querySelector('.wiki-content');
+    if (contentEl) {
+      contentEl.querySelectorAll('a[data-wiki-slug]').forEach(a => {
+        const targetSlug = a.getAttribute('data-wiki-slug');
+        a.setAttribute('onclick', `event.preventDefault();app.loadWikiPage('${escHtml(targetSlug)}')`);
+        a.setAttribute('href', '#');
+        a.style.cursor = 'pointer';
+      });
+    }
+  } catch (e) {
+    main.innerHTML = '<div class="empty" style="padding:40px;">加载失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+// ==================== Markdown Rendering ====================
+
+export function renderMarkdown(text) {
+  if (!text) return '';
+
+  // Use marked.js if available
+  let html;
+  if (typeof window.marked !== 'undefined' && window.marked.parse) {
+    html = window.marked.parse(text);
+  } else {
+    html = basicMarkdown(text);
+  }
+
+  // Post-process: convert /wiki/{slug} links to data-wiki-slug attributes
+  html = html.replace(
+    /<a\s+(?:[^>]*?\s+)?href="\/wiki\/([^"]+)"([^>]*)>/gi,
+    '<a data-wiki-slug="$1"$2>'
+  );
+
+  return html;
+}
+
+function basicMarkdown(text) {
+  let html = escHtml(text);
+
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // Images
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  // Headings
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Unordered lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+  // Paragraphs (double newlines)
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  // Clean up empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  // Blockquotes
+  html = html.replace(/<p>&gt; (.+)<\/p>/g, '<blockquote>$1</blockquote>');
+
+  return html;
+}
+
+// ==================== Search ====================
+
+export async function searchWiki() {
+  const input = document.getElementById('wikiSearchInput');
+  if (!input) return;
+  const query = input.value.trim();
+
+  if (!query) {
+    renderTree(_wikiTreeData);
+    return;
+  }
+
+  if (query.length < 2) return;
+
+  try {
+    const data = await api('/api/wiki/search?q=' + encodeURIComponent(query));
+    const results = data.data || [];
+    const tree = document.getElementById('wikiTree');
+    if (!tree) return;
+
+    if (!results.length) {
+      tree.innerHTML = '<div class="empty" style="padding:20px;">无匹配结果</div>';
+      return;
+    }
+
+    tree.innerHTML = results.map(r => `
+      <div class="wiki-search-result" onclick="app.loadWikiPage('${escHtml(r.slug)}')">
+        <div class="wiki-result-title">${escHtml(r.title)}</div>
+        <div class="wiki-result-meta">${formatDate(r.updated_at)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    // ignore search errors
+  }
+}
+
+// ==================== Editor ====================
+
+export async function showWikiEditor(pageId) {
+  const main = document.getElementById('wikiMain');
+  if (!main) return;
+
+  let page = { title: '', content: '', parent_id: null, slug: '',
+                 version: '', entry_type: '', release_note: '', keywords: '',
+                 knowledge_type: state.role === 'rd' ? 'd2' : 'd1' };
+  let isEdit = false;
+
+  if (pageId) {
+    try {
+      const data = await api('/api/wiki/tree');
+      const pages = flattenTree(data.data || []);
+      const found = pages.find(p => p.id === pageId);
+      if (found) {
+        const pageData = await api('/api/wiki/' + encodeURIComponent(found.slug));
+        if (pageData.data) {
+          page = { ...page, ...pageData.data };
+          isEdit = true;
+        }
+      }
+    } catch (e) {
+      toast('获取页面数据失败', 'error');
+      return;
+    }
+  }
+
+  const pagesFlat = flattenTree(_wikiTreeData);
+  const parentOptions = pagesFlat
+    .filter(p => !isEdit || p.id !== pageId)
+    .map(p => `
+      <option value="${p.id}" ${p.id === page.parent_id ? 'selected' : ''}>
+        ${escHtml(p.title)}
+      </option>
+    `).join('');
+
+  const ktOptions = [
+    { val: 'd1', label: '客服知识库 (D1)' },
+    { val: 'd2', label: '研发知识库 (D2)' },
+  ].map(o => `<option value="${o.val}" ${page.knowledge_type === o.val ? 'selected' : ''}>${o.label}</option>`).join('');
+
+  const entryTypeOptions = ['', 'solution', 'release_note']
+    .map(t => `<option value="${t}" ${page.entry_type === t ? 'selected' : ''}>
+      ${t === 'solution' ? '技术方案' : t === 'release_note' ? '发布说明' : '通用文档'}
+    </option>`).join('');
+
+  const editWarning = isEdit && page.status === 'approved'
+    ? '<div class="wiki-draft-notice" style="margin-bottom:12px;">此页面已通过审核，修改后将退回草稿状态，需重新提交审核。</div>'
+    : '';
+
+  const showKt = state.role === 'doc' || state.role === 'rd';
+
+  main.innerHTML = `
+    <div class="card wiki-editor-card">
+      <h3>${isEdit ? '编辑页面' : '新建页面'}</h3>
+      ${editWarning}
+      <div class="wiki-editor-grid">
+        <div>
+          <div class="section-label">标题</div>
+          <input type="text" id="wikiEditorTitle" value="${escHtml(page.title)}" placeholder="页面标题">
+        </div>
+        <div>
+          <div class="section-label">版本号</div>
+          <input type="text" id="wikiEditorVersion" value="${escHtml(page.version || '')}" placeholder="如 v1.0">
+        </div>
+      </div>
+      <div class="wiki-editor-grid" style="margin-top:8px;">
+        ${showKt ? `
+          <div>
+            <div class="section-label">知识库分类</div>
+            <select id="wikiEditorKnowledgeType">${ktOptions}</select>
+          </div>
+        ` : ''}
+        <div>
+          <div class="section-label">父页面</div>
+          <select id="wikiEditorParent">
+            <option value="">无父页面（根节点）</option>
+            ${parentOptions}
+          </select>
+        </div>
+      </div>
+      <div class="wiki-editor-grid" style="margin-top:8px;">
+        <div>
+          <div class="section-label">文档类型</div>
+          <select id="wikiEditorEntryType">${entryTypeOptions}</select>
+        </div>
+        <div>
+          <div class="section-label">关键词</div>
+          <input type="text" id="wikiEditorKeywords" value="${escHtml(page.keywords || '')}" placeholder="逗号分隔">
+        </div>
+      </div>
+      <div class="section-label" style="margin-top:8px;">发布说明</div>
+      <input type="text" id="wikiEditorReleaseNote" value="${escHtml(page.release_note || '')}" placeholder="本次更新的简要说明（可选）">
+      <div class="section-label" style="margin-top:8px;">内容 (Markdown)</div>
+      <textarea id="wikiEditorContent" rows="15" placeholder="使用 Markdown 编写文档内容...
+
+内部链接语法: [链接文字](/wiki/目标页面slug)">${escHtml(page.content)}</textarea>
+      <div class="btn-group" style="margin-top:12px;">
+        <button class="btn btn-primary" onclick="app.saveWikiPage(${pageId || 'null'})">保存</button>
+        ${isEdit ? `<button class="btn btn-outline" onclick="app.loadWikiPage('${escHtml(page.slug)}')">取消</button>` : ''}
+        ${!isEdit ? `<button class="btn btn-outline" onclick="app.loadWikiTree(); document.getElementById('wikiMain').innerHTML='<div class=\\'wiki-welcome\\'><h3>知识库浏览</h3><p>请从左侧目录选择文档，或使用搜索查找内容。</p></div>'">取消</button>` : ''}
+      </div>
+    </div>`;
+}
+
+export async function saveWikiPage(pageId) {
+  const titleEl = document.getElementById('wikiEditorTitle');
+  const parentEl = document.getElementById('wikiEditorParent');
+  const contentEl = document.getElementById('wikiEditorContent');
+  const versionEl = document.getElementById('wikiEditorVersion');
+  const entryTypeEl = document.getElementById('wikiEditorEntryType');
+  const releaseNoteEl = document.getElementById('wikiEditorReleaseNote');
+  const keywordsEl = document.getElementById('wikiEditorKeywords');
+  const ktEl = document.getElementById('wikiEditorKnowledgeType');
+
+  if (!titleEl || !contentEl) return;
+
+  const title = titleEl.value.trim();
+  if (!title) { toast('标题不能为空', 'error'); return; }
+
+  const body = {
+    title: title,
+    content: contentEl.value,
+    parent_id: parentEl ? (parentEl.value || null) : null,
+    version: versionEl ? versionEl.value.trim() : '',
+    entry_type: entryTypeEl ? entryTypeEl.value : '',
+    release_note: releaseNoteEl ? releaseNoteEl.value.trim() : '',
+    keywords: keywordsEl ? keywordsEl.value.trim() : '',
+    knowledge_type: ktEl ? ktEl.value : (state.role === 'rd' ? 'd2' : 'd1'),
+  };
+  if (body.parent_id) body.parent_id = parseInt(body.parent_id);
+
+  try {
+    if (pageId && pageId !== 'null') {
+      // Editing an approved page → revert to draft for re-review
+      if (_wikiCurrentPageStatus === 'approved') {
+        body.status = 'draft';
+      }
+      await api('/api/wiki/' + pageId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (_wikiCurrentPageStatus === 'approved') {
+        toast('页面已更新，已退回草稿状态，请重新提交审核');
+      } else {
+        toast('页面已更新');
+      }
+    } else {
+      const resp = await api('/api/wiki', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      toast('页面已创建');
+      pageId = resp.id;
+    }
+
+    // Reload tree and navigate to the saved page
+    await loadWikiTree();
+    const data = await api('/api/wiki/tree');
+    const pages = flattenTree(data.data || []);
+    const saved = pages.find(p => p.id === pageId);
+    if (saved) {
+      await loadWikiPage(saved.slug);
+    }
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+export async function deleteWikiPage(pageId) {
+  if (!pageId) return;
+  if (!confirm('确认删除此页面？子页面将移至根节点。')) return;
+
+  try {
+    await api('/api/wiki/' + pageId, { method: 'DELETE' });
+    toast('页面已删除');
+    _wikiCurrentSlug = null;
+    await loadWikiTree();
+    const main = document.getElementById('wikiMain');
+    if (main) {
+      main.innerHTML = '<div class="wiki-welcome"><h3>知识库浏览</h3><p>请从左侧目录选择文档，或使用搜索查找内容。</p></div>';
+    }
+  } catch (e) {
+    toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+export async function submitPageForReview(pageId) {
+  if (!pageId) return;
+  if (!confirm('确认提交审核？审核通过后将对全员可见。')) return;
+  try {
+    await api('/api/wiki/' + pageId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'pending_review' }),
+    });
+    toast('已提交审核');
+    if (_wikiCurrentSlug) await loadWikiPage(_wikiCurrentSlug);
+  } catch (e) {
+    toast('提交失败: ' + e.message, 'error');
+  }
+}
+
+// ==================== Helpers ====================
+
+function flattenTree(nodes) {
+  const result = [];
+  function walk(list) {
+    for (const n of list) {
+      result.push({ id: n.id, slug: n.slug, title: n.title, parent_id: n.parent_id });
+      if (n.children) walk(n.children);
+    }
+  }
+  walk(nodes);
+  return result;
+}

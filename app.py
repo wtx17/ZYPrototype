@@ -61,14 +61,6 @@ from database import (
     escalate_ticket as db_escalate_ticket,
     resolve_ticket_escalation,
     add_handling_record,
-    insert_ai_knowledge,
-    insert_rd_knowledge,
-    list_ai_knowledge,
-    list_approved_ai_knowledge,
-    list_pending_ai_knowledge,
-    update_ai_knowledge_review,
-    get_ai_knowledge,
-    list_rd_knowledge,
     get_metrics,
     insert_message,
     get_messages,
@@ -81,12 +73,24 @@ from database import (
     end_ticket_service,
     list_active_tickets_for_agent,
     update_ticket_status as db_update_ticket_status,
+    insert_wiki_page,
+    get_wiki_page,
+    get_wiki_page_by_slug,
+    update_wiki_page,
+    delete_wiki_page,
+    search_wiki_pages,
+    list_pending_review_pages,
+    submit_for_review,
+    approve_page,
+    reject_page,
+    list_approved_d1_pages,
 )
 from agent import query_ai
 from desensitizer import desensitize
 from knowledge_store import add_to_ai_knowledge as chroma_add_ai, add_to_rd_knowledge as chroma_add_rd
 from auth import create_session, destroy_session, get_current_session, require_role, get_session
 from ws_manager import clients as ws_clients
+from wiki import build_wiki_tree
 
 app = FastAPI(title="智云科技 AI 知识库系统", version="0.3.0")
 
@@ -204,33 +208,35 @@ async def ai_query(query: AIQuery, request: Request):
     return QueryResponse(success=True, data=response)
 
 
-# ==================== P2: 沉淀知识 ====================
+# ==================== P2: 沉淀知识 → wiki_pages (D2) ====================
 
 @app.post("/api/knowledge/rd")
 async def submit_rd_knowledge(data: dict, request: Request):
     """R&D submits solution knowledge to D2 (Process 2)."""
     session = await require_role(request, ["rd"])
 
-    entry = {
+    page_data = {
         "title": data["title"],
         "content": data["content"],
+        "knowledge_type": "d2",
+        "status": "draft",
+        "owner": session["username"],
         "keywords": data.get("keywords", ""),
         "version": data.get("version", ""),
         "release_note": data.get("release_note"),
         "source_ticket_id": data.get("source_ticket_id"),
         "entry_type": data.get("entry_type", "solution"),
-        "created_at": datetime.now().isoformat(),
     }
-    db_id = insert_rd_knowledge(entry)
+    db_id = insert_wiki_page(page_data)
 
     # Also add to ChromaDB D2 collection (best-effort)
     chroma_msg = ""
     try:
         chroma_add_rd(
             title=data["title"], content=data["content"],
-            entry_type=entry["entry_type"], version=entry["version"],
-            keywords=entry["keywords"], source_ticket_id=entry["source_ticket_id"],
-            release_note=entry["release_note"],
+            entry_type=page_data["entry_type"], version=page_data["version"],
+            keywords=page_data["keywords"], source_ticket_id=page_data["source_ticket_id"],
+            release_note=page_data["release_note"], wiki_page_id=db_id,
         )
     except Exception as e:
         chroma_msg = f" (向量存储同步失败: {e})"
@@ -238,31 +244,34 @@ async def submit_rd_knowledge(data: dict, request: Request):
     return {"success": True, "id": db_id, "message": "知识已沉淀至研发知识库 (D2)" + chroma_msg}
 
 
-# ==================== P3: 发布Release Notes ====================
+# ==================== P3: 发布Release Notes → wiki_pages (D2) ====================
 
 @app.post("/api/knowledge/release-notes")
 async def publish_release_notes(data: dict, request: Request):
     """R&D publishes release notes to D2 (Process 3)."""
     session = await require_role(request, ["rd"])
 
-    entry = {
+    page_data = {
         "title": data["title"],
         "content": data["content"],
+        "knowledge_type": "d2",
+        "status": "draft",
+        "owner": session["username"],
         "keywords": data.get("keywords", ""),
         "version": data.get("version", ""),
         "release_note": data.get("release_note", ""),
         "source_ticket_id": data.get("source_ticket_id"),
         "entry_type": "release_note",
-        "created_at": datetime.now().isoformat(),
     }
-    db_id = insert_rd_knowledge(entry)
+    db_id = insert_wiki_page(page_data)
 
     chroma_msg = ""
     try:
         chroma_add_rd(
             title=data["title"], content=data["content"],
-            entry_type="release_note", version=entry["version"],
-            keywords=entry["keywords"], release_note=entry["release_note"],
+            entry_type="release_note", version=page_data["version"],
+            keywords=page_data["keywords"], release_note=page_data["release_note"],
+            wiki_page_id=db_id,
         )
     except Exception as e:
         chroma_msg = f" (向量存储同步失败: {e})"
@@ -299,7 +308,7 @@ async def resolve_escalation(ticket_id: int, data: EscalationResolve, request: R
     return {"success": ok, "message": "升级工单已解决"}
 
 
-# ==================== P6: 脱敏、审查 ====================
+# ==================== P6: 脱敏、审查 → wiki_pages ====================
 
 @app.post("/api/knowledge/submit")
 async def submit_knowledge(data: KnowledgeSubmit, request: Request):
@@ -308,58 +317,61 @@ async def submit_knowledge(data: KnowledgeSubmit, request: Request):
 
     cleaned, changes = desensitize(data.content)
 
-    entry = {
+    page_data = {
         "title": data.title,
         "content": cleaned,
         "category": data.category or "",
         "keywords": data.keywords or "",
-        "review_status": "pending",
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
+        "status": "pending_review",
+        "knowledge_type": "d1",
+        "owner": session["username"],
     }
-    db_id = insert_ai_knowledge(entry)
+    db_id = submit_for_review(page_data)
     return {"success": True, "id": db_id, "desensitized_changes": changes,
             "message": "知识已提交，等待审核 (D1)"}
 
 
-@app.post("/api/knowledge/review/{knowledge_id}")
-async def review_knowledge(knowledge_id: int, data: KnowledgeReview, request: Request):
+@app.post("/api/knowledge/review/{page_id}")
+async def review_knowledge(page_id: int, data: KnowledgeReview, request: Request):
     """Doc team reviews pending knowledge. Approved → D1 ChromaDB (Process 6)."""
     session = await require_role(request, ["doc"])
 
-    entry = get_ai_knowledge(knowledge_id)
-    if not entry:
+    page = get_wiki_page(page_id)
+    if not page:
         raise HTTPException(status_code=404, detail="知识条目不存在")
 
-    ok = update_ai_knowledge_review(knowledge_id, data.review_status)
-    if not ok:
-        raise HTTPException(status_code=500, detail="审核更新失败")
-
     if data.review_status == "approved":
+        approve_page(page_id)
+        # Sync to ChromaDB D1 (best-effort)
         try:
             chroma_add_ai(
-                title=entry["title"], content=entry["content"],
-                category=entry.get("category", ""), keywords=entry.get("keywords", ""),
+                title=page["title"], content=page["content"],
+                category=page.get("category", ""), keywords=page.get("keywords", ""),
+                wiki_page_id=page_id,
             )
-        except Exception as e:
-            pass  # vector sync is best-effort; SQL already updated
+        except Exception:
+            pass
+    elif data.review_status == "rejected":
+        reject_page(page_id)
+    else:
+        raise HTTPException(status_code=400, detail="无效的审核状态")
 
     return {"success": True, "message": f"知识已{data.review_status}"}
 
 
 @app.get("/api/knowledge/pending")
 async def get_pending_knowledge(request: Request):
-    """List pending-review D1 entries (Doc only)."""
+    """List pending-review entries (Doc only)."""
     await require_role(request, ["doc"])
-    items = list_pending_ai_knowledge()
+    items = list_pending_review_pages()
     return {"success": True, "data": items}
 
 
 @app.get("/api/knowledge/ai")
 async def get_ai_knowledge_list(request: Request):
     """List approved D1 entries (all roles)."""
-    session = await require_role(request, ["cs", "rd", "doc", "manager"])
-    items = list_approved_ai_knowledge()
+    await require_role(request, ["cs", "rd", "doc", "manager"])
+    items = list_approved_d1_pages()
     return {"success": True, "data": items}
 
 
@@ -367,7 +379,8 @@ async def get_ai_knowledge_list(request: Request):
 async def get_rd_knowledge_list(request: Request):
     """List D2 entries (RD/Doc only)."""
     await require_role(request, ["rd", "doc"])
-    items = list_rd_knowledge()
+    from database import list_wiki_pages as _list_wp
+    items = _list_wp(knowledge_type="d2")
     return {"success": True, "data": items}
 
 
@@ -446,6 +459,121 @@ async def desensitize_text(req: DesensitizeRequest):
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+# ==================== Wiki ====================
+
+@app.get("/api/wiki/tree")
+async def get_wiki_tree(request: Request):
+    """Get wiki document tree. Doc sees drafts; RD/Doc see D2 section."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    role = session["role"]
+    include_d2 = role in ("rd", "doc")
+    is_doc = role == "doc"
+    tree = build_wiki_tree(include_d2=include_d2, is_doc=is_doc)
+    return {"success": True, "data": tree}
+
+
+@app.get("/api/wiki/search")
+async def search_wiki(q: str, request: Request):
+    """Search wiki pages. CS/Manager see D1 only, RD/Doc see D1+D2."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    if not q.strip():
+        return {"success": True, "data": []}
+    query = q.strip()
+    # CS/Manager: D1 only; RD/Doc: both D1 and D2
+    kt = None if session["role"] in ("rd", "doc") else "d1"
+    results = search_wiki_pages(query, knowledge_type=kt)
+    for r in results:
+        r["source"] = r.get("knowledge_type", "d1")
+    return {"success": True, "data": results[:20]}
+
+
+@app.get("/api/wiki/{slug}")
+async def get_wiki_page_by_slug_route(slug: str, request: Request):
+    """Get a wiki page by slug. D2 pages restricted to RD/Doc."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+
+    page = get_wiki_page_by_slug(slug)
+    if not page:
+        raise HTTPException(status_code=404, detail="页面不存在")
+
+    # D2 pages: only RD/Doc can view
+    if page.get("knowledge_type") == "d2" and session["role"] not in ("rd", "doc"):
+        raise HTTPException(status_code=403, detail="无权访问研发知识库")
+
+    page["source"] = page.get("knowledge_type", "d1")
+    return {"success": True, "data": page}
+
+
+@app.post("/api/wiki")
+async def create_wiki_page_route(data: dict, request: Request):
+    """Create a new wiki page (doc, rd)."""
+    await require_role(request, ["doc", "rd"])
+    title = (data.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    page_data = {
+        "title": title,
+        "content": data.get("content", ""),
+        "parent_id": data.get("parent_id"),
+        "owner": data.get("owner", "doc"),
+        "status": data.get("status", "draft"),
+        "knowledge_type": data.get("knowledge_type", "d1"),
+        "version": data.get("version", ""),
+        "entry_type": data.get("entry_type", ""),
+        "release_note": data.get("release_note", ""),
+        "keywords": data.get("keywords", ""),
+    }
+    page_id = insert_wiki_page(page_data)
+    page = get_wiki_page(page_id)
+    return {"success": True, "id": page_id, "slug": page["slug"] if page else ""}
+
+
+@app.put("/api/wiki/{page_id}")
+async def update_wiki_page_route(page_id: int, data: dict, request: Request):
+    """Update a wiki page (doc, rd). Pages under review are read-only."""
+    await require_role(request, ["doc", "rd"])
+
+    page = get_wiki_page(page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="页面不存在")
+
+    # Block edits on pages under review (unless changing status)
+    is_status_change = set(data.keys()) == {"status"}
+    if page.get("status") == "pending_review" and not is_status_change:
+        raise HTTPException(status_code=423, detail="审核中的页面无法编辑，请先通过或拒绝审核")
+
+    # Editing an approved page → force back to draft for re-review
+    if page.get("status") == "approved" and not is_status_change:
+        data["status"] = "draft"
+
+    update_data = {}
+    for field in ("title", "content", "parent_id", "status", "category", "keywords",
+                   "version", "entry_type", "release_note", "source_ticket_id",
+                   "knowledge_type"):
+        if field in data:
+            val = data[field]
+            if field in ("title", "category", "keywords", "version", "entry_type",
+                         "release_note") and isinstance(val, str):
+                val = val.strip()
+            update_data[field] = val
+    if not update_data:
+        raise HTTPException(status_code=400, detail="无更新字段")
+    ok = update_wiki_page(page_id, update_data)
+    if not ok:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    return {"success": True}
+
+
+@app.delete("/api/wiki/{page_id}")
+async def delete_wiki_page_route(page_id: int, request: Request):
+    """Delete a wiki page (doc, rd). Children become root pages."""
+    await require_role(request, ["doc", "rd"])
+    ok = delete_wiki_page(page_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    return {"success": True}
 
 
 # ==================== Customer Token ====================

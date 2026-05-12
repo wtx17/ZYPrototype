@@ -19,21 +19,22 @@ import {
 import {
   loadPendingReviews,
   renderDocReview,
-  renderDocSubmit,
   reviewKnowledge,
-  submitKnowledge,
 } from './tabs/doc.js';
+import {
+  renderWikiBrowser,
+  loadWikiTree,
+  loadWikiPage,
+  showWikiEditor,
+  saveWikiPage,
+  deleteWikiPage,
+  submitPageForReview,
+  searchWiki,
+  toggleTreeNode,
+} from './tabs/wiki.js';
 import { loadMetrics, renderAllTickets, renderDashboard } from './tabs/manager.js';
 import {
-  loadEscalatedTickets,
-  loadRDKnowledge,
   renderRDEscalations,
-  renderRDKnowledge,
-  renderRDReleaseNotes,
-  renderRDSubmitSolution,
-  showResolveForm,
-  submitReleaseNote,
-  submitSolution,
   initRDSessions,
 } from './tabs/rd.js';
 import {
@@ -58,11 +59,8 @@ const tabRenderers = {
   tickets: renderCSTickets,
   desensitize: renderDesensitize,
   escalations: renderRDEscalations,
-  'submit-solution': renderRDSubmitSolution,
-  'release-notes': renderRDReleaseNotes,
-  'rd-knowledge': renderRDKnowledge,
-  'submit-knowledge': renderDocSubmit,
   'review-knowledge': renderDocReview,
+  'wiki-browser': renderWikiBrowser,
   dashboard: renderDashboard,
   'all-tickets': renderAllTickets,
 };
@@ -171,8 +169,8 @@ export function switchTab(name) {
   if (name === 'review-knowledge') {
     void loadPendingReviews();
   }
-  if (name === 'rd-knowledge') {
-    void loadRDKnowledge();
+  if (name === 'wiki-browser') {
+    void loadWikiTree();
   }
 }
 
@@ -190,23 +188,17 @@ window.app = {
   createTicket,
   createTicketFromChat,
   doEscalate,
-  loadEscalatedTickets,
   loadMetrics,
   loadPendingReviews,
-  loadRDKnowledge,
   loadTickets,
   login,
   logout,
   newChat,
   reviewKnowledge,
   showHandlingForm,
-  showResolveForm,
   showTextPreview,
   showTicketDetail,
   submitChat,
-  submitKnowledge,
-  submitReleaseNote,
-  submitSolution,
   switchTab,
   testDesensitize,
   closeCard,
@@ -217,9 +209,6 @@ window.app = {
   renderCSTickets,
   renderDesensitize,
   renderRDEscalations,
-  renderRDSubmitSolution,
-  renderRDReleaseNotes,
-  renderRDKnowledge,
   openSession,
   sendReply,
   askAIForMessage,
@@ -233,6 +222,16 @@ window.app = {
   backToSessionList,
   refreshSessions,
   scrollChatBottom,
+
+  // Wiki browser
+  loadWikiTree,
+  loadWikiPage,
+  showWikiEditor,
+  saveWikiPage,
+  deleteWikiPage,
+  submitPageForReview,
+  searchWiki,
+  toggleTreeNode,
 };
 
 function autoLoginFromPath() {
