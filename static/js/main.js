@@ -7,9 +7,7 @@ import { copyText, showTextPreview, toast } from './utils.js';
 import {
   createTicket,
   renderCSTickets,
-  renderDesensitize,
   renderCSQuery,
-  testDesensitize,
   newChat,
   submitChat,
   createTicketFromChat,
@@ -57,7 +55,6 @@ import {
 const tabRenderers = {
   sessions: renderCSQuery,
   tickets: renderCSTickets,
-  desensitize: renderDesensitize,
   escalations: renderRDEscalations,
   'review-knowledge': renderDocReview,
   'wiki-browser': renderWikiBrowser,
@@ -200,14 +197,12 @@ window.app = {
   showTicketDetail,
   submitChat,
   switchTab,
-  testDesensitize,
   closeCard,
 
   // Session workspace
   loadAgentSessions,
   renderCSQuery,
   renderCSTickets,
-  renderDesensitize,
   renderRDEscalations,
   openSession,
   sendReply,
