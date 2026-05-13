@@ -191,8 +191,10 @@ body {
 
 .feedback-btn.yes { color: #34c759; border-color: #34c759; }
 .feedback-btn.yes:hover { background: #34c759; color: #fff; transform: scale(1.08); }
+.feedback-btn.yes.selected { background: #34c759; color: #fff; }
 .feedback-btn.no { color: #ff3b30; border-color: #ff3b30; }
 .feedback-btn.no:hover { background: #ff3b30; color: #fff; transform: scale(1.08); }
+.feedback-btn.no.selected { background: #ff3b30; color: #fff; }
 
 .feedback-textarea {
   width: 100%;

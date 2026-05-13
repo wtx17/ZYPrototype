@@ -5,11 +5,21 @@ let customerId = null;
 let ticketId = null;
 let statusIndicator = null;
 let feedbackShown = false;
+let selectedRating = null;
 
 async function init() {
   statusIndicator = document.getElementById('statusIndicator');
 
-  // Get token from server
+  // Reuse existing token from sessionStorage on refresh
+  let token = sessionStorage.getItem('customer_token');
+  let cid = sessionStorage.getItem('customer_id');
+
+  if (token && cid) {
+    customerId = cid;
+    connect(token);
+    return;
+  }
+
   try {
     const resp = await fetch('/api/customer/token', {
       method: 'POST',
@@ -18,6 +28,8 @@ async function init() {
     });
     const data = await resp.json();
     customerId = data.customer_id;
+    sessionStorage.setItem('customer_token', data.token);
+    sessionStorage.setItem('customer_id', data.customer_id);
     connect(data.token);
   } catch (e) {
     setStatus('连接失败', 'disconnected');
@@ -40,7 +52,15 @@ function connect(token) {
     handleMessage(data);
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
+    // If server restarted, token is invalid — clear and retry
+    if (event.code === 4001 && !feedbackShown) {
+      sessionStorage.removeItem('customer_token');
+      sessionStorage.removeItem('customer_id');
+      addSystemMessage('会话已过期，正在重新连接...');
+      setTimeout(() => init(), 1000);
+      return;
+    }
     setStatus('连接断开', 'disconnected');
     if (!feedbackShown) {
       addSystemMessage('连接已断开，请刷新页面重新连接');
@@ -58,6 +78,20 @@ function handleMessage(data) {
   switch (type) {
     case 'connected':
       ticketId = payload.ticket_id;
+      // Render history if reconnecting to an active ticket
+      if (payload.history && payload.history.length > 0) {
+        const container = document.getElementById('chatMessages');
+        container.innerHTML = ''; // Clear welcome message
+        payload.history.forEach(msg => {
+          if (msg.sender_type === 'system') {
+            addSystemMessage(msg.content);
+          } else if (msg.sender_type === 'customer') {
+            addMessage('customer', msg.content);
+          } else {
+            addMessage('agent', msg.content, msg.sender_name);
+          }
+        });
+      }
       break;
 
     case 'ticket_assigned':
@@ -125,32 +159,34 @@ export async function sendMessage() {
 
 function showFeedback() {
   feedbackShown = true;
+  selectedRating = null;
   document.getElementById('chatInputArea').style.display = 'none';
   document.getElementById('feedbackArea').style.display = 'block';
 }
 
-export async function submitFeedback(resolved) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-  ws.send(JSON.stringify({
-    type: 'satisfaction',
-    payload: { ticket_id: ticketId, resolved, feedback_text: '' },
-  }));
-
-  document.getElementById('feedbackArea').innerHTML =
-    '<div style="text-align:center;padding:20px;color:#666;">感谢您的反馈！</div>';
-
-  setTimeout(() => { ws.close(); }, 1000);
+export function selectRating(rating) {
+  selectedRating = rating;
+  const yesBtn = document.querySelector('.feedback-btn.yes');
+  const noBtn = document.querySelector('.feedback-btn.no');
+  if (yesBtn) yesBtn.style.background = rating === 'yes' ? '#34c759' : '';
+  if (yesBtn) yesBtn.style.color = rating === 'yes' ? '#fff' : '#34c759';
+  if (noBtn) noBtn.style.background = rating === 'no' ? '#ff3b30' : '';
+  if (noBtn) noBtn.style.color = rating === 'no' ? '#fff' : '#ff3b30';
 }
 
-export async function submitFeedbackWithText() {
+export async function submitFeedback() {
+  if (!selectedRating) {
+    alert('请先选择"已解决"或"未解决"');
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
   const textArea = document.getElementById('feedbackText');
   const feedbackText = textArea ? textArea.value.trim() : '';
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
   ws.send(JSON.stringify({
     type: 'satisfaction',
-    payload: { ticket_id: ticketId, resolved: 'feedback', feedback_text: feedbackText },
+    payload: { ticket_id: ticketId, resolved: selectedRating, feedback_text: feedbackText },
   }));
 
   document.getElementById('feedbackArea').innerHTML =
@@ -160,7 +196,7 @@ export async function submitFeedbackWithText() {
 }
 
 window.sendMessage = sendMessage;
+window.selectRating = selectRating;
 window.submitFeedback = submitFeedback;
-window.submitFeedbackWithText = submitFeedbackWithText;
 
 init();

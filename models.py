@@ -12,8 +12,7 @@ from pydantic import BaseModel, Field
 
 class TicketStatus(str, Enum):
     PENDING = "pending"
-    AI_PROCESSING = "ai_processing"
-    RESOLVED = "resolved"
+    HANDLING = "handling"
     ESCALATED = "escalated"
     CLOSED = "closed"
 
@@ -167,13 +166,24 @@ class QueryResponse(BaseModel):
 
 class SystemMetrics(BaseModel):
     total_tickets: int = 0
+    week_tickets: int = 0
+    pending_tickets: int = 0
     escalated_count: int = 0
+    escalated_waiting: int = 0
     escalation_rate: float = 0
     green_rate: float = 0
     yellow_rate: float = 0
     red_rate: float = 0
+    avg_confidence: float = 0
+    ai_queries_today: int = 0
     d1_doc_count: int = 0
     d2_doc_count: int = 0
+    pending_review_count: int = 0
+    satisfaction_yes: int = 0
+    satisfaction_no: int = 0
+    cs_count: int = 0
+    rd_count: int = 0
+    doc_count: int = 0
 
 
 # --- WebSocket Messaging ---

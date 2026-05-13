@@ -25,8 +25,8 @@ export async function loadTickets() {
   let html = '<table><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>创建者</th><th>时间</th><th>操作</th></tr></thead><tbody>';
   tickets.forEach((ticket) => {
     const status = statusLabels[ticket.status] || ticket.status;
-    const canEscalate = ticket.status !== 'closed' && ticket.status !== 'resolved';
-    const canRecord = ticket.status !== 'closed' && ticket.status !== 'resolved';
+    const canEscalate = ticket.status !== 'closed';
+    const canRecord = ticket.status !== 'closed';
 
     html += `<tr>
       <td>#${ticket.id}</td>

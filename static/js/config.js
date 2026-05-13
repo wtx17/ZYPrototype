@@ -21,8 +21,7 @@ export const roleUsernames = {
 
 export const statusLabels = {
   pending: '待处理',
-  ai_processing: 'AI处理中',
-  resolved: '已解决',
+  handling: '客服处理中',
   escalated: '已升级',
   closed: '已关闭',
 };

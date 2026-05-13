@@ -749,10 +749,36 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
 
     await ws_clients.register_customer(customer_id, websocket)
 
-    # Welcome without ticket — ticket created on first message
+    # Find active ticket for this customer via DB
+    active_ticket_id = None
+    history = []
+    from database import get_conn as _gc, get_or_create_user as _gcu
+    user = _gcu(customer_id, customer_id, "customer")
+    rows = _gc().execute(
+        "SELECT id FROM tickets WHERE customer_user_id = ? "
+        "AND status != 'closed' AND service_ended = 0 "
+        "ORDER BY created_at DESC LIMIT 1",
+        (user["id"],)
+    ).fetchall()
+    if rows:
+        active_ticket_id = rows[0]["id"]
+        ws_clients.ticket_map[active_ticket_id] = customer_id
+        msgs = get_messages(active_ticket_id)
+        history = [
+            MessageOut(
+                id=m["id"], ticket_id=m["ticket_id"],
+                sender_type=m["sender_type"], sender_name=m["sender_name"] or "",
+                content=m["content"], created_at=m["created_at"],
+            ) for m in msgs
+        ]
+
     await websocket.send_json({
         "type": "connected",
-        "payload": {"customer_id": customer_id, "ticket_id": None},
+        "payload": {
+            "customer_id": customer_id,
+            "ticket_id": active_ticket_id,
+            "history": [m.model_dump() for m in history],
+        },
     })
 
     try:

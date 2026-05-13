@@ -30,7 +30,7 @@ import {
   searchWiki,
   toggleTreeNode,
 } from './tabs/wiki.js';
-import { loadMetrics, renderAllTickets, renderDashboard } from './tabs/manager.js';
+import { loadMetrics, renderAllTickets, renderDashboard, loadManagerTickets, setTicketFilter } from './tabs/manager.js';
 import {
   renderRDEscalations,
   initRDSessions,
@@ -157,8 +157,11 @@ export function switchTab(name) {
   if (name === 'escalations' && state.role === 'rd') {
     initRDSessions();
   }
-  if (name === 'tickets' || name === 'all-tickets') {
+  if (name === 'tickets') {
     void loadTickets();
+  }
+  if (name === 'all-tickets') {
+    void loadManagerTickets();
   }
   if (name === 'dashboard') {
     void loadMetrics();
@@ -186,6 +189,8 @@ window.app = {
   createTicketFromChat,
   doEscalate,
   loadMetrics,
+  loadManagerTickets,
+  setTicketFilter,
   loadPendingReviews,
   loadTickets,
   login,

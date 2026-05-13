@@ -596,7 +596,8 @@ def escalate_ticket(ticket_id: int, reason: str = "") -> bool:
 def resolve_ticket_escalation(ticket_id: int, solution: str, version: Optional[str] = None) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET status = 'resolved', updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET status = 'closed', service_ended = 1, "
+        "updated_at = datetime('now') WHERE id = ?",
         (ticket_id,),
     )
     c.execute(
@@ -756,27 +757,70 @@ def get_next_ticket_id() -> int:
 def get_metrics() -> dict:
     c = get_conn()
     total = c.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
-    escalated = c.execute("SELECT COUNT(*) FROM escalations WHERE resolved_at IS NULL").fetchone()[0]
+    week = c.execute(
+        "SELECT COUNT(*) FROM tickets WHERE date(created_at) >= date('now', '-6 days')"
+    ).fetchone()[0]
+    pending = c.execute(
+        "SELECT COUNT(*) FROM tickets WHERE status = 'pending'"
+    ).fetchone()[0]
+    escalated = c.execute(
+        "SELECT COUNT(*) FROM escalations WHERE resolved_at IS NULL"
+    ).fetchone()[0]
+    escalated_waiting = c.execute(
+        "SELECT COUNT(*) FROM escalations e "
+        "JOIN tickets t ON t.id = e.ticket_id "
+        "WHERE e.resolved_at IS NULL AND t.assigned_rd_id IS NULL"
+    ).fetchone()[0]
+
     d1_count = c.execute(
         "SELECT COUNT(*) FROM wiki_pages WHERE knowledge_type = 'd1' AND status = 'approved'"
     ).fetchone()[0]
     d2_count = c.execute(
         "SELECT COUNT(*) FROM wiki_pages WHERE knowledge_type = 'd2'"
     ).fetchone()[0]
+    pending_review = c.execute(
+        "SELECT COUNT(*) FROM wiki_pages WHERE status = 'pending_review'"
+    ).fetchone()[0]
 
-    logs = c.execute("SELECT confidence_label FROM ai_query_logs").fetchall()
+    logs = c.execute("SELECT confidence_label, confidence_score FROM ai_query_logs").fetchall()
     green = sum(1 for r in logs if r["confidence_label"] == "green")
     yellow = sum(1 for r in logs if r["confidence_label"] == "yellow")
     red = sum(1 for r in logs if r["confidence_label"] == "red")
     total_logs = len(logs) or 1
+    avg_conf = sum(r["confidence_score"] or 0 for r in logs) / total_logs
+    ai_today = c.execute(
+        "SELECT COUNT(*) FROM ai_query_logs WHERE date(created_at) = date('now')"
+    ).fetchone()[0]
+
+    sat_rows = c.execute(
+        "SELECT resolved, COUNT(*) as cnt FROM satisfaction_feedback GROUP BY resolved"
+    ).fetchall()
+    sat_yes = sum(r["cnt"] for r in sat_rows if r["resolved"] == "yes")
+    sat_no = sum(r["cnt"] for r in sat_rows if r["resolved"] == "no")
+
+    user_rows = c.execute(
+        "SELECT role, COUNT(*) as cnt FROM users GROUP BY role"
+    ).fetchall()
+    user_counts = {r["role"]: r["cnt"] for r in user_rows}
 
     return {
         "total_tickets": total,
+        "week_tickets": week,
+        "pending_tickets": pending,
         "escalated_count": escalated,
+        "escalated_waiting": escalated_waiting,
         "escalation_rate": escalated / max(total, 1),
         "green_rate": green / total_logs,
         "yellow_rate": yellow / total_logs,
         "red_rate": red / total_logs,
+        "avg_confidence": round(avg_conf, 2),
+        "ai_queries_today": ai_today,
         "d1_doc_count": d1_count,
         "d2_doc_count": d2_count,
+        "pending_review_count": pending_review,
+        "satisfaction_yes": sat_yes,
+        "satisfaction_no": sat_no,
+        "cs_count": user_counts.get("cs", 0),
+        "rd_count": user_counts.get("rd", 0),
+        "doc_count": user_counts.get("doc", 0),
     }

@@ -134,9 +134,15 @@ class WSClients:
         return ticket_id
 
     async def handle_cs_accept(self, ticket_id: int, cs_name: str):
-        """CS accepts a ticket. Assigns CS and sends greeting to customer."""
+        """CS accepts a ticket. Assigns CS, sets handling status, sends greeting."""
         user_id = self.cs_users.get(cs_name, 0)
+        if not user_id:
+            from database import get_or_create_user
+            u = get_or_create_user(cs_name, cs_name, "cs")
+            user_id = u["id"]
         assign_ticket_cs(ticket_id, user_id)
+        from database import update_ticket_status
+        update_ticket_status(ticket_id, TicketStatus.HANDLING.value)
         self.ticket_cs[ticket_id] = cs_name
         greeting = f"客服 {cs_name} 为您服务"
         insert_message(ticket_id, "system", "系统", greeting)
@@ -218,6 +224,10 @@ class WSClients:
     async def handle_rd_accept(self, ticket_id: int, rd_name: str):
         """RD accepts an escalated ticket. Takes over the conversation."""
         user_id = self.rd_users.get(rd_name, 0)
+        if not user_id:
+            from database import get_or_create_user
+            u = get_or_create_user(rd_name, rd_name, "rd")
+            user_id = u["id"]
         assign_ticket_rd(ticket_id, user_id)
         self.ticket_rd[ticket_id] = rd_name
         insert_message(ticket_id, "system", "系统", f"工程师 {rd_name} 为您服务")
@@ -233,6 +243,14 @@ class WSClients:
     async def handle_service_end(self, ticket_id: int):
         """Agent ends service. Notify customer to fill satisfaction survey."""
         end_ticket_service(ticket_id)
+        # Resolve any open escalation
+        from database import get_conn as _gc
+        _gc().execute(
+            "UPDATE escalations SET resolved_at = datetime('now') "
+            "WHERE ticket_id = ? AND resolved_at IS NULL",
+            (ticket_id,)
+        )
+        _gc().commit()
         insert_message(ticket_id, "system", "系统", "服务已结束")
 
         await self.send_to_customer(ticket_id, {
