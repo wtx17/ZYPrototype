@@ -42,8 +42,6 @@ from models import (
     KnowledgeReview,
     HandlingRecord,
     EscalationResolve,
-    DesensitizeRequest,
-    DesensitizeResponse,
     SystemMetrics,
     QueryResponse,
     CustomerTokenRequest,
@@ -467,15 +465,6 @@ async def system_metrics(request: Request):
     await require_role(request, ["manager"])
     data = get_metrics()
     return {"success": True, "data": SystemMetrics(**data)}
-
-
-# ==================== Utility ====================
-
-@app.post("/api/desensitize")
-async def desensitize_text(req: DesensitizeRequest):
-    """Test desensitization (Process 6 utility)."""
-    cleaned, changes = desensitize(req.text)
-    return DesensitizeResponse(original=req.text, desensitized=cleaned, changes=changes)
 
 
 @app.get("/api/health")

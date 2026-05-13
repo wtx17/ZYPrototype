@@ -165,16 +165,6 @@ class QueryResponse(BaseModel):
     error: Optional[str] = None
 
 
-class DesensitizeRequest(BaseModel):
-    text: str
-
-
-class DesensitizeResponse(BaseModel):
-    original: str
-    desensitized: str
-    changes: int
-
-
 class SystemMetrics(BaseModel):
     total_tickets: int = 0
     escalated_count: int = 0

@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { state } from '../state.js';
-import { escHtml, toast, stripHtml } from '../utils.js';
+import { toast } from '../utils.js';
 import { loadAgentSessions, renderSessionList, renderSessionWorkspace } from '../agent-workspace.js';
 
 // ==================== Main Tab Renderer ====================
@@ -83,40 +83,6 @@ async function reloadWorkspaceMessages(ticketId) {
   } catch (e) {
     // ignore
   }
-}
-
-// ==================== Legacy: Desensitize Tool ====================
-
-export function renderDesensitize() {
-  return `
-    <div class="card">
-      <h3>敏感信息脱敏测试 (Process 6)</h3>
-      <textarea id="desensitizeInput" rows="3" placeholder="输入包含敏感信息的文本，如：客户 API key: sk-abc123，密码 pwd=secret123"></textarea>
-      <div class="btn-group"><button class="btn btn-outline" onclick="app.testDesensitize()">执行脱敏</button></div>
-      <div id="desensitizeResult"></div>
-    </div>`;
-}
-
-export async function testDesensitize() {
-  const input = document.getElementById('desensitizeInput');
-  const result = document.getElementById('desensitizeResult');
-  if (!input || !result) return;
-
-  const text = input.value.trim();
-  if (!text) { toast('请输入文本', 'error'); return; }
-
-  const data = await api('/api/desensitize', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-
-  result.innerHTML = `
-    <div style="margin-top:12px;">
-      <div class="section-label">原始文本</div><div class="answer-box">${escHtml(data.original)}</div>
-      <div class="section-label" style="margin-top:12px;">脱敏后</div><div class="answer-box" style="background:#f0fdf4;">${escHtml(data.desensitized)}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--muted);">共脱敏 ${data.changes} 处敏感信息</div>
-    </div>`;
 }
 
 // ==================== Legacy: Tickets ====================
