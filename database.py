@@ -57,17 +57,25 @@ def _init_db():
             title TEXT NOT NULL,
             description TEXT,
             status TEXT DEFAULT 'pending',
-            ai_suggestion TEXT,
-            ai_public_refs TEXT,
-            ai_restricted_hint INTEGER DEFAULT 0,
-            escalated_to_rd INTEGER DEFAULT 0,
-            rd_solution TEXT,
-            rd_version TEXT,
-            handling_record TEXT,
             created_by TEXT DEFAULT 'cs',
+            assigned_cs_id INTEGER REFERENCES users(id),
+            assigned_rd_id INTEGER REFERENCES users(id),
+            customer_user_id INTEGER REFERENCES users(id),
+            service_ended INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            display_name TEXT DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'customer',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, role)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +93,43 @@ def _init_db():
             feedback_text TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS ai_query_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+            query_text TEXT NOT NULL,
+            answer_text TEXT NOT NULL,
+            citations_json TEXT DEFAULT '[]',
+            confidence_score REAL DEFAULT 0,
+            confidence_label TEXT DEFAULT 'red',
+            d2_match_found INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ai_query_logs_ticket ON ai_query_logs(ticket_id);
+
+        CREATE TABLE IF NOT EXISTS escalations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+            escalated_by TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            solution TEXT,
+            version TEXT,
+            resolved_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_escalations_ticket ON escalations(ticket_id);
+
+        CREATE TABLE IF NOT EXISTS handling_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+            user_id INTEGER REFERENCES users(id),
+            notes TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_handling_records_ticket ON handling_records(ticket_id);
     """)
     _conn.commit()
 
@@ -216,22 +261,26 @@ def _run_merge_migration(c):
 # ==================== Tickets Migration ====================
 
 def _migrate_tickets(c):
-    new_cols = [
-        ("assigned_cs", "TEXT"),
-        ("assigned_rd", "TEXT"),
-        ("customer_id", "TEXT"),
-        ("service_ended", "INTEGER DEFAULT 0"),
-    ]
-    existing = {row[1] for row in c.execute("PRAGMA table_info(tickets)").fetchall()}
-    for col_name, col_type in new_cols:
-        if col_name not in existing:
-            c.execute(f"ALTER TABLE tickets ADD COLUMN {col_name} {col_type}")
-    _conn.commit()
-
-    # Seed wiki_pages if empty (fresh install)
+    _migrate_users(c)
     count = c.execute("SELECT COUNT(*) FROM wiki_pages").fetchone()[0]
     if count == 0:
         _seed_wiki_pages(c)
+
+
+def _migrate_users(c):
+    """Seed default users (idempotent)."""
+    defaults = [
+        ("小陈", "小陈", "cs"),
+        ("王工", "王工", "rd"),
+        ("李婷", "李婷", "doc"),
+        ("林总", "林总", "manager"),
+    ]
+    for username, display_name, role in defaults:
+        c.execute(
+            "INSERT OR IGNORE INTO users (username, display_name, role) VALUES (?, ?, ?)",
+            (username, display_name, role)
+        )
+    _conn.commit()
 
 
 def _seed_wiki_pages(c):
@@ -443,6 +492,31 @@ def _next_id(c, table: str) -> int:
     return (row[0] or 0) + 1
 
 
+# ==================== Users ====================
+
+def get_or_create_user(username: str, display_name: str = "", role: str = "cs") -> dict:
+    c = get_conn()
+    row = c.execute(
+        "SELECT * FROM users WHERE username = ? AND role = ?", (username, role)
+    ).fetchone()
+    if not row:
+        c.execute(
+            "INSERT INTO users (username, display_name, role) VALUES (?, ?, ?)",
+            (username, display_name or username, role)
+        )
+        _conn.commit()
+        row = c.execute(
+            "SELECT * FROM users WHERE username = ? AND role = ?", (username, role)
+        ).fetchone()
+    return dict(row)
+
+
+def get_user(user_id: int) -> Optional[dict]:
+    c = get_conn()
+    row = c.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
 # ==================== Tickets ====================
 
 def insert_ticket(data: dict) -> int:
@@ -466,7 +540,9 @@ def list_tickets(created_by: Optional[str] = None, escalated_only: bool = False)
     c = get_conn()
     if escalated_only:
         rows = c.execute(
-            "SELECT * FROM tickets WHERE escalated_to_rd = 1 AND status != 'closed' ORDER BY created_at DESC"
+            "SELECT t.* FROM tickets t "
+            "JOIN escalations e ON t.id = e.ticket_id AND e.resolved_at IS NULL "
+            "WHERE t.status != 'closed' ORDER BY t.created_at DESC"
         ).fetchall()
     elif created_by:
         rows = c.execute(
@@ -487,23 +563,31 @@ def update_ticket_status(ticket_id: int, status: str):
     _conn.commit()
 
 
-def update_ticket_ai_response(ticket_id: int, suggestion: str, public_refs: str, restricted_hint: bool):
+def insert_ai_query_log(ticket_id: int, query_text: str, answer_text: str,
+                        citations_json: str = "[]", confidence_score: float = 0,
+                        confidence_label: str = "red", d2_match_found: bool = False) -> int:
     c = get_conn()
-    c.execute(
-        "UPDATE tickets SET ai_suggestion = ?, ai_public_refs = ?, ai_restricted_hint = ?, "
-        "updated_at = datetime('now') WHERE id = ?",
-        (suggestion, public_refs, 1 if restricted_hint else 0, ticket_id),
+    cur = c.execute(
+        "INSERT INTO ai_query_logs (ticket_id, query_text, answer_text, citations_json, "
+        "confidence_score, confidence_label, d2_match_found) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (ticket_id, query_text, answer_text, citations_json,
+         confidence_score, confidence_label, 1 if d2_match_found else 0)
     )
     _conn.commit()
+    return cur.lastrowid
 
 
 def escalate_ticket(ticket_id: int, reason: str = "") -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET escalated_to_rd = 1, status = 'escalated', "
-        "description = COALESCE(description, '') || ' | 升级原因: ' || ?, "
+        "UPDATE tickets SET status = 'escalated', "
         "updated_at = datetime('now') WHERE id = ?",
-        (reason, ticket_id),
+        (ticket_id,),
+    )
+    c.execute(
+        "INSERT INTO escalations (ticket_id, reason) VALUES (?, ?)",
+        (ticket_id, reason),
     )
     _conn.commit()
     return cur.rowcount > 0
@@ -512,24 +596,23 @@ def escalate_ticket(ticket_id: int, reason: str = "") -> bool:
 def resolve_ticket_escalation(ticket_id: int, solution: str, version: Optional[str] = None) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET rd_solution = ?, rd_version = ?, status = 'resolved', "
-        "updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET status = 'resolved', updated_at = datetime('now') WHERE id = ?",
+        (ticket_id,),
+    )
+    c.execute(
+        "UPDATE escalations SET solution = ?, version = ?, resolved_at = datetime('now') "
+        "WHERE ticket_id = ? AND resolved_at IS NULL",
         (solution, version, ticket_id),
     )
     _conn.commit()
     return cur.rowcount > 0
 
 
-def add_handling_record(ticket_id: int, notes: str) -> bool:
+def add_handling_record(ticket_id: int, notes: str, user_id: int = 0) -> bool:
     c = get_conn()
-    row = c.execute("SELECT handling_record FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
-    if not row:
-        return False
-    records = json.loads(row["handling_record"] or "[]")
-    records.append({"notes": notes, "time": c.execute("SELECT datetime('now')").fetchone()[0]})
     c.execute(
-        "UPDATE tickets SET handling_record = ?, updated_at = datetime('now') WHERE id = ?",
-        (json.dumps(records, ensure_ascii=False), ticket_id),
+        "INSERT INTO handling_records (ticket_id, user_id, notes) VALUES (?, ?, ?)",
+        (ticket_id, user_id or None, notes),
     )
     _conn.commit()
     return True
@@ -587,11 +670,11 @@ def get_satisfaction_feedback(ticket_id: int) -> Optional[dict]:
 
 # ==================== Ticket Assignment ====================
 
-def assign_ticket_cs(ticket_id: int, cs_agent: str) -> bool:
+def assign_ticket_cs(ticket_id: int, cs_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_cs = ?, updated_at = datetime('now') WHERE id = ?",
-        (cs_agent, ticket_id),
+        "UPDATE tickets SET assigned_cs_id = ?, updated_at = datetime('now') WHERE id = ?",
+        (cs_user_id or None, ticket_id),
     )
     _conn.commit()
     return cur.rowcount > 0
@@ -600,28 +683,28 @@ def assign_ticket_cs(ticket_id: int, cs_agent: str) -> bool:
 def clear_ticket_cs(ticket_id: int) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_cs = NULL, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET assigned_cs_id = NULL, updated_at = datetime('now') WHERE id = ?",
         (ticket_id,),
     )
     _conn.commit()
     return cur.rowcount > 0
 
 
-def assign_ticket_rd(ticket_id: int, rd_agent: str) -> bool:
+def assign_ticket_rd(ticket_id: int, rd_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_rd = ?, updated_at = datetime('now') WHERE id = ?",
-        (rd_agent, ticket_id),
+        "UPDATE tickets SET assigned_rd_id = ?, updated_at = datetime('now') WHERE id = ?",
+        (rd_user_id or None, ticket_id),
     )
     _conn.commit()
     return cur.rowcount > 0
 
 
-def update_ticket_customer(ticket_id: int, customer_id: str) -> bool:
+def update_ticket_customer(ticket_id: int, customer_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET customer_id = ?, updated_at = datetime('now') WHERE id = ?",
-        (customer_id, ticket_id),
+        "UPDATE tickets SET customer_user_id = ?, updated_at = datetime('now') WHERE id = ?",
+        (customer_user_id or None, ticket_id),
     )
     _conn.commit()
     return cur.rowcount > 0
@@ -641,16 +724,21 @@ def list_active_tickets_for_agent(agent_name: str, role: str) -> list[dict]:
     c = get_conn()
     if role == "cs":
         rows = c.execute(
-            "SELECT * FROM tickets WHERE status != 'closed' AND service_ended = 0"
-            " AND escalated_to_rd = 0"
-            " AND (assigned_cs = ? OR assigned_cs IS NULL OR assigned_cs = '')"
-            " ORDER BY updated_at DESC",
+            "SELECT t.* FROM tickets t "
+            "LEFT JOIN escalations e ON t.id = e.ticket_id AND e.resolved_at IS NULL "
+            "LEFT JOIN users u ON t.assigned_cs_id = u.id "
+            "WHERE t.status != 'closed' AND t.service_ended = 0"
+            " AND e.id IS NULL"
+            " AND (u.username = ? OR t.assigned_cs_id IS NULL)"
+            " ORDER BY t.updated_at DESC",
             (agent_name,),
         ).fetchall()
     elif role == "rd":
         rows = c.execute(
-            "SELECT * FROM tickets WHERE escalated_to_rd = 1 AND status != 'closed'"
-            " AND service_ended = 0 ORDER BY updated_at DESC",
+            "SELECT t.* FROM tickets t "
+            "JOIN escalations e ON t.id = e.ticket_id AND e.resolved_at IS NULL "
+            "WHERE t.status != 'closed' AND t.service_ended = 0 "
+            "ORDER BY t.updated_at DESC",
         ).fetchall()
     else:
         rows = []
@@ -668,7 +756,7 @@ def get_next_ticket_id() -> int:
 def get_metrics() -> dict:
     c = get_conn()
     total = c.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
-    escalated = c.execute("SELECT COUNT(*) FROM tickets WHERE escalated_to_rd = 1").fetchone()[0]
+    escalated = c.execute("SELECT COUNT(*) FROM escalations WHERE resolved_at IS NULL").fetchone()[0]
     d1_count = c.execute(
         "SELECT COUNT(*) FROM wiki_pages WHERE knowledge_type = 'd1' AND status = 'approved'"
     ).fetchone()[0]
@@ -676,17 +764,10 @@ def get_metrics() -> dict:
         "SELECT COUNT(*) FROM wiki_pages WHERE knowledge_type = 'd2'"
     ).fetchone()[0]
 
-    logs = c.execute(
-        "SELECT ai_suggestion, ai_restricted_hint FROM tickets WHERE ai_suggestion IS NOT NULL"
-    ).fetchall()
-    green = yellow = red = 0
-    for row in logs:
-        if row["ai_restricted_hint"]:
-            red += 1
-        elif row["ai_suggestion"]:
-            green += 1
-        else:
-            yellow += 1
+    logs = c.execute("SELECT confidence_label FROM ai_query_logs").fetchall()
+    green = sum(1 for r in logs if r["confidence_label"] == "green")
+    yellow = sum(1 for r in logs if r["confidence_label"] == "yellow")
+    red = sum(1 for r in logs if r["confidence_label"] == "red")
     total_logs = len(logs) or 1
 
     return {

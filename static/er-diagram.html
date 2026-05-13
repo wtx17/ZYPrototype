@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智云科技 — 数据库 ER 图</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+    background: #f2f3f7; padding: 10px; color: #1d1d1f;
+  }
+  h1 { text-align:center; font-size:22px; letter-spacing:-0.5px; margin:20px 0 0; }
+  .sub { text-align:center; color:#86868b; font-size:13px; margin-bottom:8px; }
+
+  .canvas {
+    position:relative; width:1200px; height:780px; margin:0 auto;
+  }
+  svg.lines { position:absolute; inset:0; width:100%; height:100%; z-index:0; }
+  svg.lines line, svg.lines path { stroke-width:1.8; }
+  svg.lines .fk-line { stroke:#007aff; }
+  svg.lines .fk-dash { stroke:#007aff; stroke-dasharray:5,3; }
+  svg.lines .self-line { stroke:#ff9500; stroke-dasharray:4,2; }
+
+  /* Table boxes */
+  .tbl {
+    position:absolute; z-index:1;
+    background:rgba(255,255,255,0.82);
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(0,0,0,0.06); border-radius:12px;
+    box-shadow:0 2px 12px rgba(0,0,0,0.04);
+    overflow:hidden; font-size:11px; cursor:default;
+  }
+  .tbl-head {
+    padding:10px 14px; font-weight:700; font-size:13px; letter-spacing:-0.2px;
+    display:flex; align-items:baseline; gap:8px;
+  }
+  .tbl-body { padding:4px 0 8px; }
+  .tbl-row {
+    display:flex; padding:3px 14px; gap:6px; align-items:baseline;
+    font-family:'SF Mono','Menlo','Consolas',monospace; font-size:11px;
+  }
+  .tbl-row .cn { flex:0 0 auto; min-width:90px; }
+  .tbl-row .ct { color:#86868b; font-size:9px; min-width:48px; }
+  .badge { font-size:8px; font-weight:700; padding:1px 4px; border-radius:2px; margin-left:3px; white-space:nowrap; }
+  .bpk { background:rgba(255,149,0,0.12); color:#ff9500; }
+  .bfk { background:rgba(0,122,255,0.1); color:#007aff; }
+  .buq { background:rgba(52,199,89,0.1); color:#34c759; }
+
+  .wiki .tbl-head { background:rgba(0,122,255,0.06); color:#007aff; }
+  .users .tbl-head { background:rgba(255,149,0,0.06); color:#ff9500; }
+  .tickets .tbl-head { background:rgba(52,199,89,0.06); color:#34c759; }
+  .ailog .tbl-head { background:rgba(255,59,48,0.05); color:#ff3b30; }
+  .esc .tbl-head { background:rgba(255,149,0,0.05); color:#ff9500; }
+  .msg .tbl-head { background:rgba(0,122,255,0.05); color:#007aff; }
+  .sat .tbl-head { background:rgba(175,82,222,0.06); color:#af52de; }
+  .hr .tbl-head { background:rgba(134,134,139,0.06); color:#86868b; }
+
+  .legend {
+    display:flex; gap:24px; justify-content:center; margin:16px 0 8px;
+    font-size:11px; color:#86868b;
+  }
+  .legend span { display:flex; align-items:center; gap:5px; }
+  .legend .dot { width:7px; height:7px; border-radius:2px; }
+  .ld-pk { background:#ff9500; } .ld-fk { background:#007aff; } .ld-uq { background:#34c759; }
+  .legend .lstyle { width:20px; height:1.5px; }
+  .ls-solid { background:#007aff; }
+  .ls-dash { background: repeating-linear-gradient(90deg,#007aff 0 4px,transparent 4px 7px); }
+  .ls-self { background: repeating-linear-gradient(90deg,#ff9500 0 3px,transparent 3px 5px); }
+
+  .rel-list {
+    display:flex; flex-wrap:wrap; gap:6px 20px; justify-content:center;
+    max-width:1100px; margin:12px auto 0; font-size:12px; color:#86868b;
+  }
+  .rel-list code { background:rgba(0,0,0,0.03); padding:1px 5px; border-radius:3px; font-size:11px; }
+  .rel-list .card { margin-right:8px; font-weight:600; }
+  .r1 { color:#ff9500; } .rf { color:#007aff; }
+</style>
+</head>
+<body>
+
+<h1>智云科技 AI 知识库系统 · ER 图</h1>
+<div class="sub">8 张表 · 11 条关系 · 第三范式 (3NF)</div>
+
+<div class="legend">
+  <span><span class="dot ld-pk"></span>PK</span>
+  <span><span class="dot ld-fk"></span>FK</span>
+  <span><span class="dot ld-uq"></span>UQ</span>
+  <span style="margin-left:8px;"><span class="lstyle ls-solid"></span>强关联</span>
+  <span><span class="lstyle ls-dash"></span>可空关联</span>
+  <span><span class="lstyle ls-self"></span>自引用</span>
+</div>
+
+<div class="canvas">
+
+  <svg class="lines" viewBox="0 0 1200 780">
+    <defs>
+      <marker id="arr-fk" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 Z" fill="#007aff"/>
+      </marker>
+      <marker id="arr-self" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 Z" fill="#ff9500"/>
+      </marker>
+    </defs>
+
+    <!-- wiki_pages self-ref: parent_id → id (loop) -->
+    <path d="M 330,80 C 370,80 370,110 330,110" class="self-line" fill="none" marker-end="url(#arr-self)"/>
+    <text x="345" y="100" font-size="9" fill="#ff9500" font-weight="600">parent_id</text>
+
+    <!-- wiki_pages.source_ticket_id → tickets.id -->
+    <path d="M 330,225 C 395,225 395,250 460,250" class="fk-dash" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="355" y="222" font-size="9" fill="#007aff" font-weight="500">source_ticket_id</text>
+
+    <!-- users → tickets (3 FKs) -->
+    <path d="M 310,480 C 385,480 385,290 460,290" class="fk-line" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="390" y="287" font-size="9" fill="#007aff" font-weight="500">assigned_cs_id</text>
+
+    <path d="M 310,510 C 400,510 400,315 460,315" class="fk-line" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="390" y="312" font-size="9" fill="#007aff" font-weight="500">assigned_rd_id</text>
+
+    <path d="M 310,540 C 415,540 415,340 460,340" class="fk-line" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="390" y="337" font-size="9" fill="#007aff" font-weight="500">customer_user_id</text>
+
+    <!-- users → handling_records.user_id -->
+    <path d="M 310,565 C 385,565 385,595 460,595" class="fk-dash" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="375" y="588" font-size="9" fill="#007aff" font-weight="500">user_id</text>
+
+    <!-- tickets → handling_records (vertical down) -->
+    <path d="M 595,405 L 595,540" class="fk-line" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="600" y="475" font-size="9" fill="#007aff" font-weight="500">ticket_id</text>
+
+    <!-- tickets → ai_query_logs -->
+    <path d="M 730,250 C 795,250 795,100 860,100" class="fk-line" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="785" y="95" font-size="9" fill="#007aff" font-weight="500">ticket_id</text>
+
+    <!-- tickets → escalations -->
+    <path d="M 730,280 C 795,280 795,270 860,270" class="fk-dash" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="795" y="265" font-size="9" fill="#007aff" font-weight="500">ticket_id</text>
+
+    <!-- tickets → messages -->
+    <path d="M 730,310 C 795,310 795,450 860,450" class="fk-line" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="790" y="445" font-size="9" fill="#007aff" font-weight="500">ticket_id</text>
+
+    <!-- tickets → satisfaction_feedback -->
+    <path d="M 730,340 C 795,340 795,600 860,600" class="fk-dash" fill="none" marker-end="url(#arr-fk)"/>
+    <text x="770" y="595" font-size="9" fill="#007aff" font-weight="500">ticket_id</text>
+  </svg>
+
+  <!-- ===== wiki_pages ===== -->
+  <div class="tbl wiki" style="left:30px;top:40px;width:300px;">
+    <div class="tbl-head">wiki_pages<span style="font-weight:400;font-size:10px;color:#86868b;"> 知识文档</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">slug</span><span class="ct">TEXT</span><span class="badge buq">UQ</span></div>
+      <div class="tbl-row"><span class="cn">title</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">content</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">parent_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→self</span></div>
+      <div class="tbl-row"><span class="cn">status</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">knowledge_type</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">owner</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">version</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">entry_type</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">source_ticket_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→tickets</span></div>
+      <div class="tbl-row"><span style="color:#a0a0a0;font-size:10px;">+ category, keywords, release_note, created_at, updated_at</span></div>
+    </div>
+  </div>
+
+  <!-- ===== users ===== -->
+  <div class="tbl users" style="left:30px;top:460px;width:280px;">
+    <div class="tbl-head">users<span style="font-weight:400;font-size:10px;color:#86868b;"> 用户</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn">username</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">display_name</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">role</span><span class="ct">TEXT</span><span style="color:#86868b;font-size:9px;">cs/rd/doc/mgr/customer</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+      <div class="tbl-row"><span style="color:#a0a0a0;font-size:10px;">UNIQUE(username, role)</span></div>
+    </div>
+  </div>
+
+  <!-- ===== tickets ===== -->
+  <div class="tbl tickets" style="left:460px;top:220px;width:270px;">
+    <div class="tbl-head">tickets<span style="font-weight:400;font-size:10px;color:#86868b;"> 工单</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn">title</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">description</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">status</span><span class="ct">TEXT</span><span style="color:#86868b;font-size:9px;">pending/escalated/resolved/closed</span></div>
+      <div class="tbl-row"><span class="cn">created_by</span><span class="ct">TEXT</span></div>
+      <div style="border-top:1px solid rgba(0,0,0,0.05);margin:4px 0;"></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">assigned_cs_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→users</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">assigned_rd_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→users</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">customer_user_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→users</span></div>
+      <div class="tbl-row"><span class="cn">service_ended</span><span class="ct">INTEGER</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+      <div class="tbl-row"><span class="cn">updated_at</span><span class="ct">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <!-- ===== ai_query_logs ===== -->
+  <div class="tbl ailog" style="left:860px;top:40px;width:240px;">
+    <div class="tbl-head">ai_query_logs<span style="font-weight:400;font-size:10px;color:#86868b;"> AI查询日志</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">ticket_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→tickets</span></div>
+      <div class="tbl-row"><span class="cn">query_text</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">answer_text</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">citations_json</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">confidence_score</span><span class="ct">REAL</span></div>
+      <div class="tbl-row"><span class="cn">confidence_label</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">d2_match_found</span><span class="ct">INTEGER</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <!-- ===== escalations ===== -->
+  <div class="tbl esc" style="left:860px;top:210px;width:240px;">
+    <div class="tbl-head">escalations<span style="font-weight:400;font-size:10px;color:#86868b;"> 升级记录</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">ticket_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→tickets</span></div>
+      <div class="tbl-row"><span class="cn">escalated_by</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">reason</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">solution</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">version</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">resolved_at</span><span class="ct">TIMESTAMP</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <!-- ===== messages ===== -->
+  <div class="tbl msg" style="left:860px;top:370px;width:240px;">
+    <div class="tbl-head">messages<span style="font-weight:400;font-size:10px;color:#86868b;"> 会话消息</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">ticket_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→tickets</span></div>
+      <div class="tbl-row"><span class="cn">sender_type</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">sender_name</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">content</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <!-- ===== satisfaction_feedback ===== -->
+  <div class="tbl sat" style="left:860px;top:510px;width:240px;">
+    <div class="tbl-head">satisfaction_feedback<span style="font-weight:400;font-size:10px;color:#86868b;"> 满意度</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">ticket_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→tickets</span></div>
+      <div class="tbl-row"><span class="cn">resolved</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">feedback_text</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <!-- ===== handling_records ===== -->
+  <div class="tbl hr" style="left:460px;top:540px;width:270px;">
+    <div class="tbl-head">handling_records<span style="font-weight:400;font-size:10px;color:#86868b;"> 处理记录</span></div>
+    <div class="tbl-body">
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">id</span><span class="ct">INTEGER</span><span class="badge bpk">PK</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">ticket_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→tickets</span></div>
+      <div class="tbl-row"><span class="cn" style="font-weight:600;">user_id</span><span class="ct">INTEGER</span><span class="badge bfk">FK→users</span></div>
+      <div class="tbl-row"><span class="cn">notes</span><span class="ct">TEXT</span></div>
+      <div class="tbl-row"><span class="cn">created_at</span><span class="ct">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="rel-list">
+  <span><span class="card r1">①</span><code>wiki_pages.parent_id → wiki_pages.id</code> <span style="color:#ff9500;">(自引用)</span></span>
+  <span><span class="card rf">②</span><code>wiki_pages.source_ticket_id → tickets.id</code></span>
+  <span><span class="card rf">③④⑤</span><code>tickets.assigned_cs/rd/customer → users.id</code></span>
+  <span><span class="card rf">⑥</span><code>ai_query_logs.ticket_id → tickets.id</code> <span style="font-weight:500;">1:N</span></span>
+  <span><span class="card rf">⑦</span><code>escalations.ticket_id → tickets.id</code> <span style="font-weight:500;">1:0..1</span></span>
+  <span><span class="card rf">⑧</span><code>messages.ticket_id → tickets.id</code> <span style="font-weight:500;">1:N</span></span>
+  <span><span class="card rf">⑨</span><code>satisfaction_feedback.ticket_id → tickets.id</code> <span style="font-weight:500;">1:0..1</span></span>
+  <span><span class="card rf">⑩</span><code>handling_records.ticket_id → tickets.id</code> <span style="font-weight:500;">1:N</span></span>
+  <span><span class="card rf">⑪</span><code>handling_records.user_id → users.id</code></span>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const tables = document.querySelectorAll('.tbl');
+    const tableIdMap = {
+      'wiki': ['rf-2'], // This needs manual mapping or simple generic logic
+    };
+    
+    // A simple interactive hover effect
+    tables.forEach(tbl => {
+      tbl.addEventListener('mouseenter', () => {
+        tables.forEach(t => { if (t !== tbl) t.style.opacity = '0.3'; });
+        tbl.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+        tbl.style.transform = 'translateY(-2px)';
+        tbl.style.transition = 'all 0.3s ease';
+      });
+      tbl.addEventListener('mouseleave', () => {
+        tables.forEach(t => { t.style.opacity = '1'; });
+        tbl.style.boxShadow = '0 2px 12px rgba(0,0,0,0.04)';
+        tbl.style.transform = 'translateY(0)';
+      });
+      
+      // Initialize transitions
+      tbl.style.transition = 'all 0.3s ease';
+    });
+  });
+</script>
+
+</body>
+</html>

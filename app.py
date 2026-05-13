@@ -57,7 +57,7 @@ from database import (
     get_ticket,
     list_tickets,
     update_ticket_status,
-    update_ticket_ai_response,
+    insert_ai_query_log,
     escalate_ticket as db_escalate_ticket,
     resolve_ticket_escalation,
     add_handling_record,
@@ -153,8 +153,16 @@ async def login(data: LoginRequest, response: Response):
     if data.role not in ("cs", "rd", "doc", "manager"):
         raise HTTPException(status_code=400, detail="无效的角色")
     session_id = create_session(data.role, data.username)
+    from auth import get_session
+    sess = get_session(session_id)
     response.set_cookie(key="session_id", value=session_id, httponly=True, max_age=86400)
-    return {"success": True, "role": data.role, "username": data.username, "session_id": session_id}
+    return {
+        "success": True, "role": data.role,
+        "username": data.username,
+        "display_name": sess.get("display_name", data.username) if sess else data.username,
+        "user_id": sess.get("user_id") if sess else None,
+        "session_id": session_id,
+    }
 
 
 @app.get("/api/auth/me")
@@ -162,7 +170,13 @@ async def me(request: Request):
     session = await get_current_session(request)
     if not session:
         return {"authenticated": False}
-    return {"authenticated": True, "role": session["role"], "username": session["username"]}
+    return {
+        "authenticated": True,
+        "role": session["role"],
+        "username": session["username"],
+        "display_name": session.get("display_name", session["username"]),
+        "user_id": session.get("user_id"),
+    }
 
 
 @app.post("/api/auth/logout")
@@ -201,8 +215,11 @@ async def ai_query(query: AIQuery, request: Request):
         ticket = get_ticket(query.ticket_id)
         if ticket:
             public_refs = json.dumps([c.model_dump() for c in response.citations], ensure_ascii=False)
-            update_ticket_ai_response(
-                query.ticket_id, response.answer_text, public_refs, response.d2_match_found,
+            insert_ai_query_log(
+                query.ticket_id, query.query_text, response.answer_text,
+                public_refs, response.confidence_score,
+                response.confidence_label.value if hasattr(response.confidence_label, 'value') else str(response.confidence_label),
+                response.d2_match_found,
             )
 
     return QueryResponse(success=True, data=response)
@@ -302,7 +319,12 @@ async def resolve_escalation(ticket_id: int, data: EscalationResolve, request: R
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
-    if not ticket.get("escalated_to_rd"):
+    from database import get_conn as _gc
+    esc = _gc().execute(
+        "SELECT 1 FROM escalations WHERE ticket_id = ? AND resolved_at IS NULL",
+        (ticket_id,)
+    ).fetchone()
+    if not esc:
         raise HTTPException(status_code=400, detail="该工单未被升级")
     ok = resolve_ticket_escalation(ticket_id, data.solution, data.version)
     return {"success": ok, "message": "升级工单已解决"}
@@ -624,10 +646,10 @@ async def send_agent_message(ticket_id: int, data: dict, request: Request):
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
     # CS must have accepted the ticket
-    if session["role"] == "cs" and not ticket.get("assigned_cs"):
+    if session["role"] == "cs" and not ticket.get("assigned_cs_id"):
         raise HTTPException(status_code=403, detail="请先处理工单")
     # RD must have accepted the escalated ticket
-    if session["role"] == "rd" and not ticket.get("assigned_rd"):
+    if session["role"] == "rd" and not ticket.get("assigned_rd_id"):
         raise HTTPException(status_code=403, detail="请先接管工单")
 
     await ws_clients.handle_agent_message(ticket_id, content, session["role"], session["username"])
@@ -643,7 +665,12 @@ async def accept_ticket(ticket_id: int, request: Request):
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
-    if not ticket.get("escalated_to_rd"):
+    from database import get_conn as _gc
+    esc = _gc().execute(
+        "SELECT 1 FROM escalations WHERE ticket_id = ? AND resolved_at IS NULL",
+        (ticket_id,)
+    ).fetchone()
+    if not esc:
         raise HTTPException(status_code=400, detail="该工单未被升级")
     await ws_clients.handle_rd_accept(ticket_id, session["username"])
     return {"success": True, "message": "已接管工单"}
@@ -798,10 +825,11 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
     await websocket.accept()
 
     try:
+        user_id = sess.get("user_id", 0)
         if role == "cs":
-            await ws_clients.register_cs(username, websocket)
+            await ws_clients.register_cs(username, websocket, user_id)
         else:
-            await ws_clients.register_rd(username, websocket)
+            await ws_clients.register_rd(username, websocket, user_id)
     except Exception as e:
         await websocket.close(code=4002, reason=str(e))
         return
@@ -822,9 +850,9 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
                 content = payload.get("content", "")
                 if ticket_id and content.strip():
                     ticket = get_ticket(ticket_id)
-                    if role == "cs" and ticket and not ticket.get("assigned_cs"):
+                    if role == "cs" and ticket and not ticket.get("assigned_cs_id"):
                         await websocket.send_json({"type": "error", "payload": {"message": "请先处理工单"}})
-                    elif role == "rd" and ticket and not ticket.get("assigned_rd"):
+                    elif role == "rd" and ticket and not ticket.get("assigned_rd_id"):
                         await websocket.send_json({"type": "error", "payload": {"message": "请先接管工单"}})
                     else:
                         await ws_clients.handle_agent_message(ticket_id, content, role, username)
@@ -848,6 +876,14 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
                         ticket_id=ticket_id,
                         role=role,
                         history=[],
+                    )
+                    # Log AI query
+                    citations_json = json.dumps([c.model_dump() for c in response.citations], ensure_ascii=False)
+                    insert_ai_query_log(
+                        ticket_id, customer_msg or "", response.answer_text,
+                        citations_json, response.confidence_score,
+                        response.confidence_label.value if hasattr(response.confidence_label, 'value') else str(response.confidence_label),
+                        response.d2_match_found,
                     )
                     ai_payload = {
                         "ticket_id": ticket_id,

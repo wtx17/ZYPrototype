@@ -113,7 +113,7 @@ function renderMain() {
     <div class="header">
       <h1>智云科技 · AI 知识库系统</h1>
       <div class="header-right">
-        <span class="role-badge ${state.role}">${roleLabels[state.role]}: ${state.username}</span>
+        <span class="role-badge ${state.role}">${roleLabels[state.role]}: ${state.displayName || state.username}</span>
         <button class="btn-sm" onclick="app.logout()">退出</button>
       </div>
     </div>

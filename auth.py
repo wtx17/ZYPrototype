@@ -27,10 +27,15 @@ _sessions: dict[str, dict] = {}
 
 
 def create_session(role: str, username: str) -> str:
+    from database import get_or_create_user
+
     session_id = secrets.token_urlsafe(32)
+    user = get_or_create_user(username, username, role)
     _sessions[session_id] = {
         "role": role,
         "username": username,
+        "display_name": user.get("display_name", username),
+        "user_id": user["id"],
         "created_at": datetime.now().isoformat(),
     }
     return session_id

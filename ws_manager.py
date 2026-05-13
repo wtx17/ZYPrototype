@@ -35,6 +35,8 @@ class WSClients:
         self.customers: dict[str, WebSocket] = {}       # customer_id -> ws
         self.cs_agents: dict[str, WebSocket] = {}       # cs_username -> ws
         self.rd_agents: dict[str, WebSocket] = {}       # rd_username -> ws
+        self.cs_users: dict[str, int] = {}              # cs_username -> user_id
+        self.rd_users: dict[str, int] = {}              # rd_username -> user_id
         self.ticket_map: dict[int, str] = {}            # ticket_id -> customer_id
         self.ticket_cs: dict[int, str] = {}             # ticket_id -> cs_username
         self.ticket_rd: dict[int, str] = {}             # ticket_id -> rd_username
@@ -44,14 +46,17 @@ class WSClients:
     DEFAULT_CS = "小陈"
 
     async def register_customer(self, customer_id: str, ws: WebSocket):
-        """Register a customer connection. Ticket is created on first message."""
         self.customers[customer_id] = ws
 
-    async def register_cs(self, username: str, ws: WebSocket):
+    async def register_cs(self, username: str, ws: WebSocket, user_id: int = 0):
         self.cs_agents[username] = ws
+        if user_id:
+            self.cs_users[username] = user_id
 
-    async def register_rd(self, username: str, ws: WebSocket):
+    async def register_rd(self, username: str, ws: WebSocket, user_id: int = 0):
         self.rd_agents[username] = ws
+        if user_id:
+            self.rd_users[username] = user_id
 
     # --- Deregistration ---
 
@@ -60,9 +65,11 @@ class WSClients:
 
     async def unregister_cs(self, username: str):
         self.cs_agents.pop(username, None)
+        self.cs_users.pop(username, None)
 
     async def unregister_rd(self, username: str):
         self.rd_agents.pop(username, None)
+        self.rd_users.pop(username, None)
 
     # --- Routing ---
 
@@ -128,7 +135,8 @@ class WSClients:
 
     async def handle_cs_accept(self, ticket_id: int, cs_name: str):
         """CS accepts a ticket. Assigns CS and sends greeting to customer."""
-        assign_ticket_cs(ticket_id, cs_name)
+        user_id = self.cs_users.get(cs_name, 0)
+        assign_ticket_cs(ticket_id, user_id)
         self.ticket_cs[ticket_id] = cs_name
         greeting = f"客服 {cs_name} 为您服务"
         insert_message(ticket_id, "system", "系统", greeting)
@@ -139,6 +147,8 @@ class WSClients:
 
     def _create_ticket_for_customer(self, customer_id: str, content: str) -> int:
         """Create a ticket on first customer message. No auto-assignment."""
+        from database import get_or_create_user
+        user = get_or_create_user(customer_id, customer_id, "customer")
         title = content[:80] if len(content) > 80 else content
         ticket_id = insert_ticket({
             "title": title,
@@ -148,7 +158,7 @@ class WSClients:
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
         })
-        update_ticket_customer(ticket_id, customer_id)
+        update_ticket_customer(ticket_id, user["id"])
         self.ticket_map[ticket_id] = customer_id
         return ticket_id
 
@@ -207,7 +217,8 @@ class WSClients:
 
     async def handle_rd_accept(self, ticket_id: int, rd_name: str):
         """RD accepts an escalated ticket. Takes over the conversation."""
-        assign_ticket_rd(ticket_id, rd_name)
+        user_id = self.rd_users.get(rd_name, 0)
+        assign_ticket_rd(ticket_id, user_id)
         self.ticket_rd[ticket_id] = rd_name
         insert_message(ticket_id, "system", "系统", f"工程师 {rd_name} 为您服务")
 

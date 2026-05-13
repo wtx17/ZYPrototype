@@ -18,6 +18,7 @@ export async function login(role) {
 
   state.role = data.role;
   state.username = data.username;
+  state.displayName = data.display_name || data.username;
   state.currentTab = null;
   state.chatHistory = [];
   state.conversationId = null;

@@ -53,8 +53,8 @@ export function renderSessionWorkspace() {
   if (!ticket) return '<div class="empty">请选择一个会话</div>';
 
   const leftWidth = state.aiPanelVisible ? '40%' : '100%';
-  const csAccepted = ticket.assigned_cs;
-  const rdAccepted = ticket.assigned_rd;
+  const csAccepted = ticket.assigned_cs_id;
+  const rdAccepted = ticket.assigned_rd_id;
   const canSend = (state.role === 'cs' && csAccepted) || (state.role === 'rd' && rdAccepted);
 
   return `
