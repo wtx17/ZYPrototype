@@ -21,10 +21,13 @@ export async function loadAgentSessions() {
   listEl.innerHTML = tickets.map(t => {
     const statusLabel = t.status === 'escalated' ? '已升级' : t.status === 'pending' ? '待处理' : '处理中';
     const statusCls = t.status === 'escalated' ? 'escalated' : t.status === 'pending' ? 'pending' : 'ai_processing';
+    const online = state.onlineCustomers[t.id];
+    const onlineDot = online ? '<span class="online-dot" title="客户在线"></span>' : '<span class="online-dot offline" title="客户离线"></span>';
     return `
       <div class="session-row" onclick="app.openSession(${t.id})">
         <div class="session-top">
           <span class="session-id">#${t.id}</span>
+          ${onlineDot}
           <span class="status-tag ${statusCls}">${statusLabel}</span>
         </div>
         <div class="session-title">${escHtml(t.title || '无标题')}</div>
@@ -56,6 +59,10 @@ export function renderSessionWorkspace() {
   const csAccepted = ticket.assigned_cs_id;
   const rdAccepted = ticket.assigned_rd_id;
   const canSend = (state.role === 'cs' && csAccepted) || (state.role === 'rd' && rdAccepted);
+  const customerOnline = state.onlineCustomers[ticket.id];
+  const onlineBadge = customerOnline
+    ? '<span class="online-badge">● 客户在线</span>'
+    : '<span class="online-badge offline">○ 客户离线</span>';
 
   return `
     <div style="display:flex;height:calc(100vh - 200px);gap:16px;">
@@ -63,6 +70,7 @@ export function renderSessionWorkspace() {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;min-height:36px;">
           ${state.aiPanelVisible ? `
             <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
+            ${onlineBadge}
             <div>
               ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
                 <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
@@ -74,6 +82,7 @@ export function renderSessionWorkspace() {
           ` : `
             <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
             <span class="status-tag ${ticket.status || 'pending'}">${ticket.status || 'pending'}</span>
+            ${onlineBadge}
             <div style="display:flex;gap:8px;">
               ${state.role === 'cs' && !csAccepted ? `
                 <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
@@ -156,7 +165,9 @@ function renderAIMessage(m, index) {
           <div class="ai-citations">
             <strong>引用来源:</strong>
             ${m.citations.map((c, i) => `
-              <div class="ai-cite-item">${i + 1}. ${escHtml(c.doc_title || '')}</div>
+              <div class="ai-cite-item">${i + 1}. ${c.slug
+                ? `<a href="#" class="cite-link" onclick="event.preventDefault();app.switchTab('wiki-browser');app.loadWikiPage('${escHtml(c.slug)}')">${escHtml(c.doc_title || '?')}</a>`
+                : escHtml(c.doc_title || '?')}</div>
             `).join('')}
           </div>
         ` : ''}
@@ -337,6 +348,27 @@ export async function openSession(ticketId) {
   state.aiQueryResult = null;
   state.aiMessages = [];
   state.aiLoading = false;
+
+  // Restore AI dialog history
+  try {
+    const aiLogsResp = await api(`/api/tickets/${ticketId}/ai-logs`);
+    if (aiLogsResp.success && aiLogsResp.data) {
+      for (const log of aiLogsResp.data) {
+        state.aiMessages.push({ role: 'user', content: log.query_text });
+        state.aiMessages.push({
+          role: 'assistant',
+          content: log.answer_text,
+          confidence_score: log.confidence_score,
+          confidence_label: log.confidence_label,
+          citations: log.citations || [],
+          d2_match_found: log.d2_match_found,
+        });
+      }
+    }
+  } catch (e) {
+    // AI logs are best-effort; don't block session open on failure
+  }
+
   window.app.renderApp();
 }
 
@@ -358,6 +390,9 @@ export async function sendReply(ticketId) {
 
 export async function handleTicket(ticketId) {
   await api(`/api/tickets/${ticketId}/handle`, { method: 'POST' });
+
+  // Mark customer as online (they sent the message that created this ticket)
+  state.onlineCustomers[ticketId] = true;
 
   const data = await api(`/api/sessions/${ticketId}`);
   state.activeSession = data.data.ticket;

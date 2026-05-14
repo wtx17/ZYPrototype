@@ -28,7 +28,13 @@ import {
   deleteWikiPage,
   submitPageForReview,
   searchWiki,
+  searchWikiFromTOC,
+  filterWikiTree,
   toggleTreeNode,
+  showLinkSearchModal,
+  closeLinkSearchModal,
+  searchWikiPagesForLink,
+  insertWikiLink,
 } from './tabs/wiki.js';
 import { loadMetrics, renderAllTickets, renderDashboard, loadManagerTickets, setTicketFilter } from './tabs/manager.js';
 import {
@@ -106,16 +112,32 @@ function renderMain() {
     .map((tab) => `<div id="tab-${tab}" class="tab">${tabRenderers[tab]()}</div>`)
     .join('');
 
+  const wsIndicator = (state.role === 'cs' || state.role === 'rd')
+    ? '<span id="ws-status" class="ws-status disconnected">未连接</span>'
+    : '';
+
   return `
     <div class="header">
       <h1>智云科技 · AI 知识库系统</h1>
       <div class="header-right">
+        ${wsIndicator}
         <span class="role-badge ${state.role}">${roleLabels[state.role]}: ${state.displayName || state.username}</span>
         <button class="btn-sm" onclick="app.logout()">退出</button>
       </div>
     </div>
     <nav>${navButtons}</nav>
     ${tabPanels}`;
+}
+
+async function _initWsStatus() {
+  if (state.role !== 'cs' && state.role !== 'rd') return;
+  const { onConnectionChange } = await import('./websocket.js');
+  onConnectionChange((connected) => {
+    const el = document.getElementById('ws-status');
+    if (!el) return;
+    el.textContent = connected ? '已连接' : '未连接';
+    el.className = connected ? 'ws-status connected' : 'ws-status disconnected';
+  });
 }
 
 export function renderApp() {
@@ -133,6 +155,7 @@ export function renderApp() {
   }
 
   root.innerHTML = renderMain();
+  _initWsStatus();
   switchTab(state.currentTab);
 }
 
@@ -231,7 +254,13 @@ window.app = {
   deleteWikiPage,
   submitPageForReview,
   searchWiki,
+  searchWikiFromTOC,
+  filterWikiTree,
   toggleTreeNode,
+  showLinkSearchModal,
+  closeLinkSearchModal,
+  searchWikiPagesForLink,
+  insertWikiLink,
 };
 
 function autoLoginFromPath() {

@@ -98,6 +98,8 @@ def _build_context(docs_with_scores: list, source: str = "D1") -> tuple[str, lis
         citation_candidates.append({
             "doc_title": meta.get("title", "Unknown"),
             "doc_version": meta.get("version", "N/A"),
+            "slug": meta.get("slug", ""),
+            "wiki_page_id": meta.get("wiki_page_id"),
             "similarity": score,
             "content": doc.page_content,
         })
@@ -135,6 +137,25 @@ def _compute_confidence_label(score: float) -> ConfidenceLabel:
         return ConfidenceLabel.YELLOW
     else:
         return ConfidenceLabel.RED
+
+
+def _match_citation_slug(llm_title: str, candidates: list[dict]) -> str:
+    """Match an LLM-generated citation title against retrieval candidates.
+    Returns the slug if matched, empty string otherwise.
+    """
+    if not llm_title or not candidates:
+        return ""
+    llm_title_lower = llm_title.strip().lower()
+    # Exact match first
+    for c in candidates:
+        if c["doc_title"].strip().lower() == llm_title_lower:
+            return c.get("slug", "")
+    # Substring match: LLM title contains candidate title or vice versa
+    for c in candidates:
+        c_title_lower = c["doc_title"].strip().lower()
+        if c_title_lower and (c_title_lower in llm_title_lower or llm_title_lower in c_title_lower):
+            return c.get("slug", "")
+    return ""
 
 
 def query_ai(query_text: str, ticket_id: Optional[int] = None, role: str = "cs",
@@ -269,11 +290,14 @@ def query_ai(query_text: str, ticket_id: Optional[int] = None, role: str = "cs",
     # Step 8: Citation validation
     citations = []
     for c in raw_citations:
+        llm_title = c.get("doc_title", "")
+        matched_slug = _match_citation_slug(llm_title, citation_candidates)
         citations.append(Citation(
-            doc_title=c.get("doc_title", "未知"),
+            doc_title=llm_title or "未知",
             doc_version=c.get("doc_version", "N/A"),
             section=c.get("section", ""),
             snippet=c.get("snippet", ""),
+            slug=matched_slug,
         ))
 
     # Step 9: Confidence computation

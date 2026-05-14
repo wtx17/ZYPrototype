@@ -13,10 +13,10 @@ export function renderWikiBrowser() {
   return `
     <div class="wiki-container">
       <div class="wiki-sidebar">
-        <div class="wiki-search-bar">
-          <input type="text" id="wikiSearchInput" placeholder="搜索知识库..."
-            oninput="app.searchWiki()"
-            onkeydown="if(event.key==='Escape'){this.value='';app.searchWiki();}">
+        <div class="wiki-filter-bar">
+          <input type="text" id="wikiFilterInput" placeholder="在目录中筛选..."
+            oninput="app.filterWikiTree()"
+            onkeydown="if(event.key==='Escape'){this.value='';app.filterWikiTree();}if(event.key==='Enter'){app.searchWiki()}">
         </div>
         ${state.role === 'doc' ? `
           <div class="wiki-actions">
@@ -32,6 +32,14 @@ export function renderWikiBrowser() {
           <h3>知识库浏览</h3>
           <p>请从左侧目录选择文档，或使用搜索查找内容。</p>
         </div>
+      </div>
+      <div class="wiki-toc-sidebar" id="wikiTOCSidebar">
+        <input type="text" class="wiki-inpage-search" id="wikiInpageSearch" placeholder="搜索文档..."
+          oninput="app.searchWikiFromTOC()"
+          onkeydown="if(event.key==='Escape'){this.value='';app.searchWikiFromTOC();}">
+        <div class="wiki-toc-results" id="wikiTOCResults" style="display:none;"></div>
+        <div class="wiki-toc-title">本文目录</div>
+        <div class="empty" id="wikiTOCTip" style="padding:10px;font-size:12px;color:var(--muted);">选择文档后显示</div>
       </div>
     </div>`;
 }
@@ -171,7 +179,11 @@ export async function loadWikiPage(slug) {
       page.keywords ? `<span>关键词: ${escHtml(page.keywords)}</span>` : '',
     ].filter(Boolean).join('');
 
+    const breadcrumbs = buildBreadcrumbs(slug, page);
+    const prevNext = getPrevNext(slug, page);
+
     main.innerHTML = `
+      ${breadcrumbs}
       <div class="wiki-page-header">
         <h2>${escHtml(page.title)}</h2>
         <div class="wiki-meta">
@@ -186,6 +198,8 @@ export async function loadWikiPage(slug) {
       ${st === 'draft' ? '<div class="wiki-draft-notice">此页面为草稿，仅文档团队可见。编辑完成后请提交审核。</div>' : ''}
       ${st === 'pending_review' ? '<div class="wiki-draft-notice">此页面正在审核中，审核通过后将对全员可见。</div>' : ''}
       <div class="wiki-markdown wiki-content">${renderMarkdown(page.content)}</div>
+      ${prevNext}
+      <div class="wiki-related-docs" id="wikiRelatedDocs"></div>
     `;
 
     // Wire up internal wiki links for SPA navigation
@@ -198,8 +212,231 @@ export async function loadWikiPage(slug) {
         a.style.cursor = 'pointer';
       });
     }
+
+    // Load related pages and build TOC
+    loadRelatedDocs(slug);
+    buildTOC(slug);
   } catch (e) {
     main.innerHTML = '<div class="empty" style="padding:40px;">加载失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+async function loadRelatedDocs(slug) {
+  const container = document.getElementById('wikiRelatedDocs');
+  if (!container) return;
+
+  try {
+    const data = await api('/api/wiki/' + encodeURIComponent(slug) + '/related');
+    const pages = data.data || [];
+    if (!pages.length) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = `
+      <h3>相关文档</h3>
+      <ul class="wiki-related-list">
+        ${pages.map(p => `
+          <li><a href="#" class="wiki-related-link" onclick="event.preventDefault();app.loadWikiPage('${escHtml(p.slug)}')">${escHtml(p.title)}</a></li>
+        `).join('')}
+      </ul>`;
+  } catch (e) {
+    container.innerHTML = '';
+  }
+}
+
+// ==================== Breadcrumbs ====================
+
+function buildBreadcrumbs(slug, page) {
+  if (!_wikiTreeData.length) return '';
+
+  const chain = [];
+  findAncestors(_wikiTreeData, slug, chain);
+  chain.reverse();
+  chain.push({ title: page.title, slug: slug });
+
+  return `
+    <div class="wiki-breadcrumbs">
+      <a href="#" onclick="event.preventDefault();app.loadWikiPage(null);app.loadWikiTree();document.getElementById('wikiMain').innerHTML='<div class=\\'wiki-welcome\\'><h3>知识库浏览</h3><p>请从左侧目录选择文档，或使用搜索查找内容。</p></div>'">首页</a>
+      ${chain.map((item, i) => {
+        if (i === chain.length - 1) {
+          return `<span class="sep">></span><span class="current">${escHtml(item.title)}</span>`;
+        }
+        return `<span class="sep">></span><a href="#" onclick="event.preventDefault();app.loadWikiPage('${escHtml(item.slug)}')">${escHtml(item.title)}</a>`;
+      }).join('')}
+    </div>`;
+}
+
+function findAncestors(nodes, targetSlug, chain) {
+  for (const node of nodes) {
+    if (node.slug === targetSlug) {
+      return true;
+    }
+    if (node.children && node.children.length > 0) {
+      if (findAncestors(node.children, targetSlug, chain)) {
+        chain.push({ title: node.title, slug: node.slug });
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ==================== Prev / Next ====================
+
+function getPrevNext(slug, page) {
+  const flat = [];
+  flattenForNav(_wikiTreeData, flat);
+  // Filter to same knowledge_type (d2 or non-d2)
+  const kt = page.source === 'd2' ? 'd2' : (page.knowledge_type || 'd1');
+  const sameType = flat.filter(n => {
+    const nkt = n.source === 'd2' ? 'd2' : 'd1';
+    return nkt === kt;
+  });
+
+  const idx = sameType.findIndex(n => n.slug === slug);
+  if (idx < 0) return '';
+
+  const prev = idx > 0 ? sameType[idx - 1] : null;
+  const next = idx < sameType.length - 1 ? sameType[idx + 1] : null;
+
+  if (!prev && !next) return '';
+
+  return `
+    <div class="wiki-prev-next">
+      <div style="flex:1;">
+        ${prev ? `<a href="#" onclick="event.preventDefault();app.loadWikiPage('${escHtml(prev.slug)}')">
+          <span class="prev-label">上一篇</span>${escHtml(prev.title)}
+        </a>` : ''}
+      </div>
+      <div style="flex:1;">
+        ${next ? `<a href="#" class="next-link" onclick="event.preventDefault();app.loadWikiPage('${escHtml(next.slug)}')">
+          <span class="next-label">下一篇</span>${escHtml(next.title)}
+        </a>` : ''}
+      </div>
+    </div>`;
+}
+
+function flattenForNav(nodes, result) {
+  for (const node of nodes) {
+    if (node.slug && !node.source?.startsWith('d2-folder') && node.title) {
+      result.push(node);
+    }
+    if (node.children && node.children.length > 0) {
+      flattenForNav(node.children, result);
+    }
+  }
+}
+
+// ==================== TOC ====================
+
+function buildTOC(slug) {
+  const sidebar = document.getElementById('wikiTOCSidebar');
+  if (!sidebar) return;
+
+  // Document selected — hide the placeholder tip
+  const tipEl = document.getElementById('wikiTOCTip');
+  if (tipEl) tipEl.style.display = 'none';
+
+  const contentEl = document.querySelector(`.wiki-content`);
+  if (!contentEl) {
+    updateTOCList(sidebar, null);
+    return;
+  }
+
+  const headings = contentEl.querySelectorAll('h2, h3');
+  if (headings.length === 0) {
+    updateTOCList(sidebar, null);
+    return;
+  }
+
+  // Assign IDs and build TOC
+  const items = [];
+  headings.forEach((h, index) => {
+    const id = 'wiki-h-' + index + '-' + slug.replace(/[^a-z0-9]/g, '-');
+    h.id = id;
+    items.push({
+      id,
+      text: h.textContent.trim(),
+      tag: h.tagName.toLowerCase(),
+    });
+  });
+
+  updateTOCList(sidebar, items);
+
+  // IntersectionObserver for scroll highlighting
+  if (window._wikiTocObserver) window._wikiTocObserver.disconnect();
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        sidebar.querySelectorAll('.wiki-toc-list a').forEach(a => a.classList.remove('active'));
+        const link = sidebar.querySelector(`a[href="#${entry.target.id}"]`);
+        if (link) link.classList.add('active');
+        break;
+      }
+    }
+  }, { rootMargin: '-80px 0px -60% 0px' });
+  headings.forEach(h => observer.observe(h));
+  window._wikiTocObserver = observer;
+}
+
+function updateTOCList(sidebar, items) {
+  let tocList = sidebar.querySelector('.wiki-toc-list');
+  if (!tocList) {
+    tocList = document.createElement('ul');
+    tocList.className = 'wiki-toc-list';
+    const titleEl = sidebar.querySelector('.wiki-toc-title');
+    if (titleEl) {
+      titleEl.after(tocList);
+    } else {
+      sidebar.appendChild(tocList);
+    }
+  }
+  if (!items || items.length === 0) {
+    tocList.innerHTML = '<li><div class="empty" style="padding:10px;font-size:12px;color:var(--muted);">无标题</div></li>';
+  } else {
+    tocList.innerHTML = items.map(item => `
+      <li>
+        <a href="#${item.id}" class="${item.tag === 'h3' ? 'wiki-toc-h3' : ''}"
+          onclick="event.preventDefault();document.getElementById('${item.id}').scrollIntoView({behavior:'smooth',block:'start'})">
+          ${escHtml(item.text)}
+        </a>
+      </li>
+    `).join('');
+  }
+}
+
+export async function searchWikiFromTOC() {
+  const tocInput = document.getElementById('wikiInpageSearch');
+  const resultsEl = document.getElementById('wikiTOCResults');
+  const tipEl = document.getElementById('wikiTOCTip');
+  if (!tocInput || !resultsEl) return;
+
+  const query = tocInput.value.trim();
+  if (!query || query.length < 2) {
+    resultsEl.style.display = 'none';
+    if (tipEl) tipEl.style.display = '';
+    return;
+  }
+
+  try {
+    const data = await api('/api/wiki/search?q=' + encodeURIComponent(query));
+    const results = data.data || [];
+    if (!results.length) {
+      resultsEl.style.display = 'block';
+      resultsEl.innerHTML = '<div class="empty" style="padding:10px;font-size:12px;">无匹配结果</div>';
+      if (tipEl) tipEl.style.display = 'none';
+      return;
+    }
+    resultsEl.style.display = 'block';
+    if (tipEl) tipEl.style.display = 'none';
+    resultsEl.innerHTML = results.map(r => `
+      <div class="wiki-toc-result-item" onclick="app.loadWikiPage('${escHtml(r.slug)}')">
+        <div class="wiki-toc-result-title">${escHtml(r.title)}</div>
+        <div class="wiki-toc-result-snippet">${escHtml(r.snippet || '')}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    resultsEl.style.display = 'none';
   }
 }
 
@@ -259,12 +496,50 @@ function basicMarkdown(text) {
   return html;
 }
 
-// ==================== Search ====================
+// ==================== Search / Filter ====================
 
-export async function searchWiki() {
-  const input = document.getElementById('wikiSearchInput');
+export function filterWikiTree() {
+  const input = document.getElementById('wikiFilterInput');
   if (!input) return;
-  const query = input.value.trim();
+  const query = input.value.trim().toLowerCase();
+
+  if (!query) {
+    renderTree(_wikiTreeData);
+    return;
+  }
+
+  if (query.length < 2) {
+    renderTree(_wikiTreeData);
+    return;
+  }
+
+  // Filter tree: keep nodes whose title matches, plus their ancestors
+  const filtered = filterNodes(_wikiTreeData, query);
+  renderTree(filtered);
+}
+
+function filterNodes(nodes, query) {
+  const result = [];
+  for (const node of nodes) {
+    const titleMatch = (node.title || '').toLowerCase().includes(query);
+    const childMatches = node.children ? filterNodes(node.children, query) : [];
+    if (titleMatch || childMatches.length > 0) {
+      result.push({ ...node, children: childMatches.length > 0 ? childMatches : (node.children || []) });
+      if (titleMatch && childMatches.length === 0 && node.children && node.children.length > 0) {
+        // Title matches but no children match — still show children for context
+        result[result.length - 1].children = node.children;
+      }
+    }
+  }
+  return result;
+}
+
+export async function searchWiki(query) {
+  if (query === undefined) {
+    const input = document.getElementById('wikiFilterInput');
+    if (!input) return;
+    query = input.value.trim();
+  }
 
   if (!query) {
     renderTree(_wikiTreeData);
@@ -391,13 +666,30 @@ export async function showWikiEditor(pageId) {
       <div class="section-label" style="margin-top:8px;">发布说明</div>
       <input type="text" id="wikiEditorReleaseNote" value="${escHtml(page.release_note || '')}" placeholder="本次更新的简要说明（可选）">
       <div class="section-label" style="margin-top:8px;">内容 (Markdown)</div>
-      <textarea id="wikiEditorContent" rows="15" placeholder="使用 Markdown 编写文档内容...
-
-内部链接语法: [链接文字](/wiki/目标页面slug)">${escHtml(page.content)}</textarea>
+      <div class="wiki-editor-toolbar">
+        <button class="btn-sm btn-outline" onclick="app.showLinkSearchModal()">插入链接</button>
+        <span class="wiki-editor-hint">或输入 [文字](/wiki/slug)</span>
+      </div>
+      <textarea id="wikiEditorContent" rows="15" placeholder="使用 Markdown 编写文档内容...">${escHtml(page.content)}</textarea>
       <div class="btn-group" style="margin-top:12px;">
         <button class="btn btn-primary" onclick="app.saveWikiPage(${pageId || 'null'})">保存</button>
         ${isEdit ? `<button class="btn btn-outline" onclick="app.loadWikiPage('${escHtml(page.slug)}')">取消</button>` : ''}
         ${!isEdit ? `<button class="btn btn-outline" onclick="app.loadWikiTree(); document.getElementById('wikiMain').innerHTML='<div class=\\'wiki-welcome\\'><h3>知识库浏览</h3><p>请从左侧目录选择文档，或使用搜索查找内容。</p></div>'">取消</button>` : ''}
+      </div>
+    </div>
+    <div class="wiki-link-search-modal" id="wikiLinkSearchModal" style="display:none;">
+      <div class="wiki-link-search-backdrop" onclick="app.closeLinkSearchModal()"></div>
+      <div class="wiki-link-search-dialog">
+        <div class="wiki-link-search-header">
+          <h4>插入 Wiki 链接</h4>
+          <button class="btn-sm" onclick="app.closeLinkSearchModal()">✕</button>
+        </div>
+        <input type="text" id="wikiLinkSearchInput" placeholder="搜索页面标题..."
+          oninput="app.searchWikiPagesForLink()"
+          onkeydown="if(event.key==='Escape'){app.closeLinkSearchModal()}">
+        <div class="wiki-link-search-results" id="wikiLinkSearchResults">
+          <div class="empty" style="padding:20px;">输入关键词搜索</div>
+        </div>
       </div>
     </div>`;
 }
@@ -500,6 +792,70 @@ export async function submitPageForReview(pageId) {
   } catch (e) {
     toast('提交失败: ' + e.message, 'error');
   }
+}
+
+// ==================== Link Search Modal ====================
+
+export function showLinkSearchModal() {
+  const modal = document.getElementById('wikiLinkSearchModal');
+  if (!modal) return;
+  modal.style.display = 'block';
+  const input = document.getElementById('wikiLinkSearchInput');
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  document.getElementById('wikiLinkSearchResults').innerHTML = '<div class="empty" style="padding:20px;">输入关键词搜索</div>';
+}
+
+export function closeLinkSearchModal() {
+  const modal = document.getElementById('wikiLinkSearchModal');
+  if (modal) modal.style.display = 'none';
+}
+
+export async function searchWikiPagesForLink() {
+  const input = document.getElementById('wikiLinkSearchInput');
+  const resultsEl = document.getElementById('wikiLinkSearchResults');
+  if (!input || !resultsEl) return;
+
+  const q = input.value.trim();
+  if (q.length < 2) {
+    resultsEl.innerHTML = '<div class="empty" style="padding:20px;">输入关键词搜索</div>';
+    return;
+  }
+
+  try {
+    const data = await api('/api/wiki/search?q=' + encodeURIComponent(q));
+    const results = data.data || [];
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="empty" style="padding:20px;">无匹配结果</div>';
+      return;
+    }
+    resultsEl.innerHTML = results.map(r => `
+      <div class="wiki-link-search-result" onclick="app.insertWikiLink('${escHtml(r.title)}', '${escHtml(r.slug)}')">
+        <div class="wiki-link-search-result-title">${escHtml(r.title)}</div>
+        <div class="wiki-link-search-result-slug">/${escHtml(r.slug)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    resultsEl.innerHTML = '<div class="empty" style="padding:20px;">搜索失败</div>';
+  }
+}
+
+export function insertWikiLink(title, slug) {
+  const textarea = document.getElementById('wikiEditorContent');
+  if (!textarea) return;
+
+  const markdownLink = `[${title}](/wiki/${slug})`;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const before = textarea.value.substring(0, start);
+  const after = textarea.value.substring(end);
+  textarea.value = before + markdownLink + after;
+  textarea.focus();
+  textarea.setSelectionRange(start + markdownLink.length, start + markdownLink.length);
+
+  closeLinkSearchModal();
 }
 
 // ==================== Helpers ====================

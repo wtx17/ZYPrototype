@@ -89,6 +89,7 @@ def _ingest_ai_from_db(embeddings: BailianEmbeddings) -> Chroma:
     for entry in pages:
         metadata = {
             "title": entry["title"],
+            "slug": entry.get("slug", ""),
             "category": entry.get("category", ""),
             "keywords": entry.get("keywords", ""),
             "wiki_page_id": entry["id"],
@@ -103,11 +104,11 @@ def _ingest_ai_from_db(embeddings: BailianEmbeddings) -> Chroma:
 
 
 def add_to_ai_knowledge(title: str, content: str, category: str = "", keywords: str = "",
-                        wiki_page_id: int = 0) -> str:
+                        slug: str = "", wiki_page_id: int = 0) -> str:
     store = get_ai_vector_store()
     doc = LangchainDoc(
         page_content=content,
-        metadata={"title": title, "category": category, "keywords": keywords,
+        metadata={"title": title, "slug": slug, "category": category, "keywords": keywords,
                    "wiki_page_id": wiki_page_id},
     )
     ids = store.add_documents([doc])
@@ -145,6 +146,7 @@ def _ingest_rd_from_db(embeddings: BailianEmbeddings) -> Chroma:
     for entry in pages:
         metadata = {
             "title": entry["title"],
+            "slug": entry.get("slug", ""),
             "version": entry.get("version", ""),
             "entry_type": entry.get("entry_type", ""),
             "keywords": entry.get("keywords", ""),
@@ -161,10 +163,10 @@ def _ingest_rd_from_db(embeddings: BailianEmbeddings) -> Chroma:
 
 def add_to_rd_knowledge(title: str, content: str, entry_type: str, version: str = "",
                         keywords: str = "", source_ticket_id: Optional[int] = None,
-                        release_note: Optional[str] = None, wiki_page_id: int = 0) -> str:
+                        release_note: Optional[str] = None, slug: str = "", wiki_page_id: int = 0) -> str:
     store = get_rd_vector_store()
     metadata = {
-        "title": title, "entry_type": entry_type, "version": version, "keywords": keywords,
+        "title": title, "slug": slug, "entry_type": entry_type, "version": version, "keywords": keywords,
         "wiki_page_id": wiki_page_id,
     }
     if source_ticket_id:

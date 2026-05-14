@@ -431,17 +431,23 @@ def search_wiki_pages(query: str, knowledge_type: Optional[str] = None) -> list[
     like = f"%{query}%"
     if knowledge_type:
         rows = c.execute(
-            "SELECT id, slug, title, updated_at, knowledge_type FROM wiki_pages "
+            "SELECT id, slug, title, updated_at, knowledge_type, "
+            "CASE WHEN instr(content, ?) > 0 THEN substr(content, max(instr(content, ?) - 30, 1), min(length(content), 150)) "
+            "ELSE substr(content, 1, 120) END AS snippet "
+            "FROM wiki_pages "
             "WHERE (title LIKE ? OR content LIKE ?) AND knowledge_type = ? "
             "ORDER BY updated_at DESC LIMIT 20",
-            (like, like, knowledge_type)
+            (query, query, like, like, knowledge_type)
         ).fetchall()
     else:
         rows = c.execute(
-            "SELECT id, slug, title, updated_at, knowledge_type FROM wiki_pages "
+            "SELECT id, slug, title, updated_at, knowledge_type, "
+            "CASE WHEN instr(content, ?) > 0 THEN substr(content, max(instr(content, ?) - 30, 1), min(length(content), 150)) "
+            "ELSE substr(content, 1, 120) END AS snippet "
+            "FROM wiki_pages "
             "WHERE title LIKE ? OR content LIKE ? "
             "ORDER BY updated_at DESC LIMIT 20",
-            (like, like)
+            (query, query, like, like)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -484,6 +490,71 @@ def list_d2_pages() -> list[dict]:
         "SELECT * FROM wiki_pages WHERE knowledge_type = 'd2'"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_related_pages(page_id: int, limit: int = 5) -> list[dict]:
+    """Find pages related to the given page. Priority:
+    1. Keyword overlap with other pages
+    2. Same parent (sibling pages)
+    3. Same knowledge_type
+    """
+    c = get_conn()
+    page = c.execute("SELECT * FROM wiki_pages WHERE id = ?", (page_id,)).fetchone()
+    if not page:
+        return []
+
+    result_ids = set()
+    results = []
+
+    keywords = page["keywords"] or ""
+    parent_id = page["parent_id"]
+    knowledge_type = page["knowledge_type"]
+
+    # Priority 1: keyword overlap
+    if keywords.strip():
+        kw_list = [kw.strip().lower() for kw in keywords.split(",") if kw.strip()]
+        if kw_list:
+            for kw in kw_list:
+                if len(results) >= limit:
+                    break
+                rows = c.execute(
+                    "SELECT id, title, slug, keywords, knowledge_type FROM wiki_pages "
+                    "WHERE id != ? AND keywords LIKE ? AND knowledge_type = ? "
+                    "ORDER BY id DESC LIMIT ?",
+                    (page_id, f"%{kw}%", knowledge_type, limit - len(results))
+                ).fetchall()
+                for r in rows:
+                    if r["id"] not in result_ids:
+                        result_ids.add(r["id"])
+                        results.append(dict(r))
+
+    # Priority 2: same parent
+    if len(results) < limit and parent_id is not None:
+        rows = c.execute(
+            "SELECT id, title, slug, keywords, knowledge_type FROM wiki_pages "
+            "WHERE id != ? AND parent_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (page_id, parent_id, limit - len(results))
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in result_ids:
+                result_ids.add(r["id"])
+                results.append(dict(r))
+
+    # Priority 3: same knowledge_type
+    if len(results) < limit:
+        rows = c.execute(
+            "SELECT id, title, slug, keywords, knowledge_type FROM wiki_pages "
+            "WHERE id != ? AND knowledge_type = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (page_id, knowledge_type, limit - len(results))
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in result_ids:
+                result_ids.add(r["id"])
+                results.append(dict(r))
+
+    return results
 
 
 # ==================== Helpers ====================
@@ -577,6 +648,15 @@ def insert_ai_query_log(ticket_id: int, query_text: str, answer_text: str,
     )
     _conn.commit()
     return cur.lastrowid
+
+
+def list_ai_query_logs(ticket_id: int) -> list[dict]:
+    c = get_conn()
+    rows = c.execute(
+        "SELECT * FROM ai_query_logs WHERE ticket_id = ? ORDER BY created_at ASC",
+        (ticket_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def escalate_ticket(ticket_id: int, reason: str = "") -> bool:

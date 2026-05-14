@@ -57,6 +57,7 @@ from database import (
     list_tickets,
     update_ticket_status,
     insert_ai_query_log,
+    list_ai_query_logs,
     escalate_ticket as db_escalate_ticket,
     resolve_ticket_escalation,
     add_handling_record,
@@ -80,6 +81,7 @@ from database import (
     search_wiki_pages,
     list_pending_review_pages,
     submit_for_review,
+    get_related_pages,
     approve_page,
     reject_page,
     list_approved_d1_pages,
@@ -268,13 +270,15 @@ async def submit_rd_knowledge(data: dict, request: Request):
         "entry_type": data.get("entry_type", "solution"),
     }
     db_id = insert_wiki_page(page_data)
+    new_page = get_wiki_page(db_id)
 
     chroma_msg = _sync_to_chroma(
         "rd",
         title=data["title"], content=data["content"],
         entry_type=page_data["entry_type"], version=page_data["version"],
         keywords=page_data["keywords"], source_ticket_id=page_data["source_ticket_id"],
-        release_note=page_data["release_note"], wiki_page_id=db_id,
+        release_note=page_data["release_note"], slug=new_page.get("slug", "") if new_page else "",
+        wiki_page_id=db_id,
     )
     return {"success": True, "id": db_id, "message": "知识已沉淀至研发知识库 (D2)" + chroma_msg}
 
@@ -299,12 +303,14 @@ async def publish_release_notes(data: dict, request: Request):
         "entry_type": "release_note",
     }
     db_id = insert_wiki_page(page_data)
+    new_page = get_wiki_page(db_id)
 
     chroma_msg = _sync_to_chroma(
         "rd",
         title=data["title"], content=data["content"],
         entry_type="release_note", version=page_data["version"],
         keywords=page_data["keywords"], release_note=page_data["release_note"],
+        slug=new_page.get("slug", "") if new_page else "",
         wiki_page_id=db_id,
     )
     return {"success": True, "id": db_id, "message": "Release note 已发布至研发知识库 (D2)" + chroma_msg}
@@ -381,7 +387,7 @@ async def review_knowledge(page_id: int, data: KnowledgeReview, request: Request
             "ai",
             title=page["title"], content=page["content"],
             category=page.get("category", ""), keywords=page.get("keywords", ""),
-            wiki_page_id=page_id,
+            slug=page.get("slug", ""), wiki_page_id=page_id,
         )
     elif data.review_status == "rejected":
         reject_page(page_id)
@@ -550,6 +556,17 @@ async def get_wiki_page_by_slug_route(slug: str, request: Request):
     return {"success": True, "data": page}
 
 
+@app.get("/api/wiki/{slug}/related")
+async def get_related_wiki_pages(slug: str, request: Request):
+    """Get related pages for a wiki page."""
+    await require_role(request, ["cs", "rd", "doc", "manager"])
+    page = get_wiki_page_by_slug(slug)
+    if not page:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    related = get_related_pages(page["id"])
+    return {"success": True, "data": related}
+
+
 @app.post("/api/wiki")
 async def create_wiki_page_route(data: dict, request: Request):
     """Create a new wiki page (doc, rd)."""
@@ -655,6 +672,30 @@ async def get_ticket_messages(ticket_id: int, after: int = 0, request: Request =
         ],
         "last_id": msgs[-1]["id"] if msgs else after,
     }
+
+
+@app.get("/api/tickets/{ticket_id}/ai-logs")
+async def get_ticket_ai_logs(ticket_id: int, request: Request):
+    """Get AI query logs for a ticket, used to restore AI dialog history."""
+    await require_role(request, ["cs", "rd", "doc", "manager"])
+    logs = list_ai_query_logs(ticket_id)
+    result = []
+    for log in logs:
+        citations = []
+        try:
+            citations = json.loads(log.get("citations_json", "[]"))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        result.append({
+            "query_text": log["query_text"],
+            "answer_text": log["answer_text"],
+            "citations": citations,
+            "confidence_score": log["confidence_score"],
+            "confidence_label": log["confidence_label"],
+            "d2_match_found": bool(log["d2_match_found"]),
+            "created_at": log["created_at"],
+        })
+    return {"success": True, "data": result}
 
 
 # ==================== Agent Message (REST fallback) ====================
@@ -815,6 +856,7 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
     if rows:
         active_ticket_id = rows[0]["id"]
         ws_clients.ticket_map[active_ticket_id] = customer_id
+        await ws_clients.notify_customer_status(active_ticket_id, True)
         msgs = get_messages(active_ticket_id)
         history = [
             MessageOut(

@@ -139,6 +139,7 @@ class Citation(BaseModel):
     doc_version: str
     section: str = ""
     snippet: str = ""
+    slug: str = ""
 
 
 class AIResponse(BaseModel):
