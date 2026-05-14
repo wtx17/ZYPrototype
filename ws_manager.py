@@ -72,6 +72,16 @@ class WSClients:
             if cid == customer_id:
                 await self.notify_customer_status(tid, False)
 
+    async def send_initial_customer_status(self, username: str, role: str):
+        """After an agent reconnects, push current online status for all their tickets."""
+        from database import list_active_tickets_for_agent
+        tickets = list_active_tickets_for_agent(username, role)
+        for t in tickets:
+            tid = t["id"]
+            customer_id = self.ticket_map.get(tid)
+            if customer_id and customer_id in self.customers:
+                await self.notify_customer_status(tid, True)
+
     async def notify_customer_status(self, ticket_id: int, online: bool):
         """Send customer online/offline status to the assigned agent."""
         msg = {

@@ -59,7 +59,7 @@ export function renderAgentChatBubble(msg, index) {
   if (side === 'system') {
     return `
       <div class="msg-system">
-        <span class="msg-system-text">${linkifyKeywords(msg.content)}</span>
+        <span class="msg-system-text">${escHtml(msg.content)}</span>
       </div>`;
   }
 
@@ -73,7 +73,7 @@ export function renderAgentChatBubble(msg, index) {
         <span class="msg-time">${formatTime(msg.created_at)}</span>
       </div>
       <div class="msg-bubble ${isCustomer ? 'bubble-customer' : 'bubble-agent'}">
-        ${linkifyKeywords(msg.content)}
+        ${isCustomer ? linkifyKeywords(msg.content) : escHtml(msg.content)}
       </div>
       ${isCustomer ? `
         <div class="msg-ask-btn">

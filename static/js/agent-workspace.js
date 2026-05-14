@@ -344,6 +344,9 @@ export async function openSession(ticketId) {
   const data = await api(`/api/sessions/${ticketId}`);
   state.activeSession = data.data.ticket;
   state.sessionMessages = data.data.messages || [];
+  if (typeof data.data.customer_online === 'boolean') {
+    state.onlineCustomers[ticketId] = data.data.customer_online;
+  }
   state.aiPanelVisible = false;
   state.aiQueryResult = null;
   state.aiMessages = [];

@@ -805,6 +805,8 @@ async def get_session_detail(ticket_id: int, request: Request):
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
     msgs = get_messages(ticket_id)
+    customer_id = ws_clients.ticket_map.get(ticket_id)
+    customer_online = bool(customer_id and customer_id in ws_clients.customers)
     return {
         "success": True,
         "data": {
@@ -819,6 +821,7 @@ async def get_session_detail(ticket_id: int, request: Request):
                     created_at=m["created_at"],
                 ) for m in msgs
             ],
+            "customer_online": customer_online,
         },
     }
 
@@ -956,6 +959,9 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
         "type": "connected",
         "payload": {"role": role, "username": username},
     })
+
+    if role in ("cs", "rd"):
+        await ws_clients.send_initial_customer_status(username, role)
 
     try:
         while True:
