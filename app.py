@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from datetime import datetime
 from urllib.parse import parse_qs
 
@@ -31,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from config import SQLITE_PATH, CHROMA_PERSIST_DIR
+from config import SQLITE_PATH, CHROMA_PERSIST_DIR, DASHSCOPE_API_KEY
 from models import (
     TicketCreate,
     TicketStatus,
@@ -82,18 +83,42 @@ from database import (
     approve_page,
     reject_page,
     list_approved_d1_pages,
+    get_conn,
+    get_or_create_user,
+    list_wiki_pages,
 )
 from agent import query_ai
 from desensitizer import desensitize
-from knowledge_store import add_to_ai_knowledge as chroma_add_ai, add_to_rd_knowledge as chroma_add_rd
+from knowledge_store import add_to_ai_knowledge as chroma_add_ai, add_to_rd_knowledge as chroma_add_rd, get_ai_vector_store
 from auth import create_session, destroy_session, get_current_session, require_role, get_session
 from ws_manager import clients as ws_clients
 from wiki import build_wiki_tree
 
+
+# --- Max WebSocket message size ---
+WS_MAX_MSG_BYTES = 64 * 1024  # 64 KB
+
+
+_sync_logger = logging.getLogger("chromadb.sync")
+
+def _sync_to_chroma(action: str, **kwargs) -> str:
+    """Best-effort ChromaDB sync. Returns empty string on success, error suffix on failure."""
+    try:
+        if action == "rd":
+            chroma_add_rd(**kwargs)
+        elif action == "ai":
+            chroma_add_ai(**kwargs)
+    except Exception as e:
+        _sync_logger.warning("ChromaDB sync failed (action=%s): %s", action, e)
+        return f" (向量存储同步失败: {e})"
+    return ""
+
+
 app = FastAPI(title="智云科技 AI 知识库系统", version="0.3.0")
 
-# In-memory customer token store
-_customer_tokens: dict[str, str] = {}  # token -> customer_id
+# In-memory customer token store (token -> {customer_id, expires_at})
+_customer_tokens: dict[str, dict] = {}
+CUSTOMER_TOKEN_TTL = 0  # 0 = no expiry (dev)
 
 # --- Static files ---
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -244,18 +269,13 @@ async def submit_rd_knowledge(data: dict, request: Request):
     }
     db_id = insert_wiki_page(page_data)
 
-    # Also add to ChromaDB D2 collection (best-effort)
-    chroma_msg = ""
-    try:
-        chroma_add_rd(
-            title=data["title"], content=data["content"],
-            entry_type=page_data["entry_type"], version=page_data["version"],
-            keywords=page_data["keywords"], source_ticket_id=page_data["source_ticket_id"],
-            release_note=page_data["release_note"], wiki_page_id=db_id,
-        )
-    except Exception as e:
-        chroma_msg = f" (向量存储同步失败: {e})"
-
+    chroma_msg = _sync_to_chroma(
+        "rd",
+        title=data["title"], content=data["content"],
+        entry_type=page_data["entry_type"], version=page_data["version"],
+        keywords=page_data["keywords"], source_ticket_id=page_data["source_ticket_id"],
+        release_note=page_data["release_note"], wiki_page_id=db_id,
+    )
     return {"success": True, "id": db_id, "message": "知识已沉淀至研发知识库 (D2)" + chroma_msg}
 
 
@@ -280,17 +300,13 @@ async def publish_release_notes(data: dict, request: Request):
     }
     db_id = insert_wiki_page(page_data)
 
-    chroma_msg = ""
-    try:
-        chroma_add_rd(
-            title=data["title"], content=data["content"],
-            entry_type="release_note", version=page_data["version"],
-            keywords=page_data["keywords"], release_note=page_data["release_note"],
-            wiki_page_id=db_id,
-        )
-    except Exception as e:
-        chroma_msg = f" (向量存储同步失败: {e})"
-
+    chroma_msg = _sync_to_chroma(
+        "rd",
+        title=data["title"], content=data["content"],
+        entry_type="release_note", version=page_data["version"],
+        keywords=page_data["keywords"], release_note=page_data["release_note"],
+        wiki_page_id=db_id,
+    )
     return {"success": True, "id": db_id, "message": "Release note 已发布至研发知识库 (D2)" + chroma_msg}
 
 
@@ -317,8 +333,7 @@ async def resolve_escalation(ticket_id: int, data: EscalationResolve, request: R
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
-    from database import get_conn as _gc
-    esc = _gc().execute(
+    esc = get_conn().execute(
         "SELECT 1 FROM escalations WHERE ticket_id = ? AND resolved_at IS NULL",
         (ticket_id,)
     ).fetchone()
@@ -362,15 +377,12 @@ async def review_knowledge(page_id: int, data: KnowledgeReview, request: Request
 
     if data.review_status == "approved":
         approve_page(page_id)
-        # Sync to ChromaDB D1 (best-effort)
-        try:
-            chroma_add_ai(
-                title=page["title"], content=page["content"],
-                category=page.get("category", ""), keywords=page.get("keywords", ""),
-                wiki_page_id=page_id,
-            )
-        except Exception:
-            pass
+        _sync_to_chroma(
+            "ai",
+            title=page["title"], content=page["content"],
+            category=page.get("category", ""), keywords=page.get("keywords", ""),
+            wiki_page_id=page_id,
+        )
     elif data.review_status == "rejected":
         reject_page(page_id)
     else:
@@ -399,8 +411,7 @@ async def get_ai_knowledge_list(request: Request):
 async def get_rd_knowledge_list(request: Request):
     """List D2 entries (RD/Doc only)."""
     await require_role(request, ["rd", "doc"])
-    from database import list_wiki_pages as _list_wp
-    items = _list_wp(knowledge_type="d2")
+    items = list_wiki_pages(knowledge_type="d2")
     return {"success": True, "data": items}
 
 
@@ -469,7 +480,29 @@ async def system_metrics(request: Request):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    checks = {}
+    healthy = True
+
+    # SQLite
+    try:
+        get_conn().execute("SELECT 1")
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+        healthy = False
+
+    # ChromaDB
+    try:
+        get_ai_vector_store()
+        checks["chromadb"] = "ok"
+    except Exception as e:
+        checks["chromadb"] = f"error: {e}"
+        healthy = False
+
+    # LLM API key
+    checks["llm_configured"] = bool(DASHSCOPE_API_KEY and DASHSCOPE_API_KEY != "sk-your-key-here")
+
+    return {"status": "healthy" if healthy else "degraded", "checks": checks}
 
 
 # ==================== Wiki ====================
@@ -595,7 +628,10 @@ async def generate_customer_token(data: CustomerTokenRequest = None):
     token = secrets.token_urlsafe(16)
     customer_id = f"customer_{token[:8]}"
     name = data.customer_name if data else "游客"
-    _customer_tokens[token] = customer_id
+    entry = {"customer_id": customer_id}
+    if CUSTOMER_TOKEN_TTL > 0:
+        entry["expires_at"] = time.time() + CUSTOMER_TOKEN_TTL
+    _customer_tokens[token] = entry
     return CustomerTokenResponse(token=token, customer_id=customer_id)
 
 
@@ -654,8 +690,7 @@ async def accept_ticket(ticket_id: int, request: Request):
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
-    from database import get_conn as _gc
-    esc = _gc().execute(
+    esc = get_conn().execute(
         "SELECT 1 FROM escalations WHERE ticket_id = ? AND resolved_at IS NULL",
         (ticket_id,)
     ).fetchone()
@@ -737,6 +772,18 @@ async def get_session_detail(ticket_id: int, request: Request):
 
 # ==================== WebSocket ====================
 
+_ws_logger = logging.getLogger("websocket")
+
+
+async def _ws_receive_json(websocket: WebSocket) -> dict:
+    """Receive a JSON message with a size limit."""
+    raw = await websocket.receive_text()
+    if len(raw.encode("utf-8")) > WS_MAX_MSG_BYTES:
+        _ws_logger.warning("WebSocket message too large: %d bytes", len(raw.encode("utf-8")))
+        await websocket.close(code=4009, reason="Message too large")
+        raise WebSocketDisconnect(code=4009)
+    return json.loads(raw)
+
 @app.websocket("/ws/customer")
 async def ws_customer(websocket: WebSocket, token: str = ""):
     """Customer WebSocket connection."""
@@ -744,7 +791,13 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
         await websocket.close(code=4001, reason="Invalid token")
         return
 
-    customer_id = _customer_tokens[token]
+    entry = _customer_tokens[token]
+    if CUSTOMER_TOKEN_TTL > 0 and "expires_at" in entry and entry["expires_at"] < time.time():
+        del _customer_tokens[token]
+        await websocket.close(code=4001, reason="Token expired")
+        return
+
+    customer_id = entry["customer_id"]
     await websocket.accept()
 
     await ws_clients.register_customer(customer_id, websocket)
@@ -752,9 +805,8 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
     # Find active ticket for this customer via DB
     active_ticket_id = None
     history = []
-    from database import get_conn as _gc, get_or_create_user as _gcu
-    user = _gcu(customer_id, customer_id, "customer")
-    rows = _gc().execute(
+    user = get_or_create_user(customer_id, customer_id, "customer")
+    rows = get_conn().execute(
         "SELECT id FROM tickets WHERE customer_user_id = ? "
         "AND status != 'closed' AND service_ended = 0 "
         "ORDER BY created_at DESC LIMIT 1",
@@ -784,7 +836,7 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
     try:
         ticket_id = None
         while True:
-            data = await websocket.receive_json()
+            data = await _ws_receive_json(websocket)
             msg_type = data.get("type", "")
             payload = data.get("payload", {})
 
@@ -795,7 +847,6 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
                         ticket_id or payload.get("ticket_id") or 0,
                         content, customer_id,
                     )
-                    # Send ticket_id back on first message
                     if ticket_id:
                         await websocket.send_json({
                             "type": "ticket_assigned",
@@ -811,13 +862,11 @@ async def ws_customer(websocket: WebSocket, token: str = ""):
                 await websocket.send_json({"type": "pong", "payload": {}})
 
     except WebSocketDisconnect:
-        pass
+        _ws_logger.info("Customer %s disconnected", customer_id)
     except Exception:
-        pass
+        _ws_logger.exception("Error in customer WebSocket for %s", customer_id)
     finally:
         await ws_clients.unregister_customer(customer_id)
-
-
 @app.websocket("/ws/agent")
 async def ws_agent(websocket: WebSocket, session_id: str = ""):
     """CS/RD agent WebSocket connection. Auth via session_id query param."""
@@ -856,7 +905,7 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
 
     try:
         while True:
-            data = await websocket.receive_json()
+            data = await _ws_receive_json(websocket)
             msg_type = data.get("type", "")
             payload = data.get("payload", {})
 
@@ -932,9 +981,9 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
                 await websocket.send_json({"type": "pong", "payload": {}})
 
     except WebSocketDisconnect:
-        pass
+        _ws_logger.info("Agent %s (%s) disconnected", username, role)
     except Exception:
-        pass
+        _ws_logger.exception("Error in agent WebSocket for %s (%s)", username, role)
     finally:
         if role == "cs":
             await ws_clients.unregister_cs(username)
@@ -944,4 +993,4 @@ async def ws_agent(websocket: WebSocket, session_id: str = ""):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, ws_max_size=WS_MAX_MSG_BYTES)

@@ -1,17 +1,7 @@
 import os
-from pathlib import Path
+from dotenv import load_dotenv
 
-# Load .env file
-_dotenv_path = Path(__file__).parent / ".env"
-if _dotenv_path.exists():
-    with open(_dotenv_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, val = line.partition("=")
-                key, val = key.strip(), val.strip().strip('"').strip("'")
-                if key not in os.environ:
-                    os.environ[key] = val
+load_dotenv()
 
 # --- 阿里百炼 (OpenAI 兼容模式) ---
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "sk-your-key-here")
@@ -21,6 +11,7 @@ EMBEDDING_MODEL = "text-embedding-v2"
 
 # --- Session ---
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-in-production")
+SESSION_TTL = 0  # 0 = no expiry
 
 # --- Confidence Thresholds ---
 CONFIDENCE_GREEN = 0.8

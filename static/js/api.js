@@ -12,12 +12,15 @@ function getSessionId() {
 
 export async function api(path, opts = {}) {
   const sid = getSessionId();
-  const sep = path.includes('?') ? '&' : '?';
-  const url = sid ? `${path}${sep}session_id=${encodeURIComponent(sid)}` : path;
+  const headers = { ...opts.headers };
+  if (sid) {
+    headers['X-Session-Id'] = sid;
+  }
 
-  const response = await fetch(url, {
+  const response = await fetch(path, {
     credentials: 'same-origin',
     ...opts,
+    headers,
   });
 
   if (response.status === 401) {

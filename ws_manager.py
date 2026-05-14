@@ -22,6 +22,12 @@ from database import (
     end_ticket_service,
     list_active_tickets_for_agent,
     get_ticket,
+    get_conn,
+    get_or_create_user,
+    update_ticket_status,
+    escalate_ticket as db_escalate,
+    clear_ticket_cs,
+    insert_satisfaction_feedback,
 )
 from models import TicketStatus
 
@@ -137,11 +143,9 @@ class WSClients:
         """CS accepts a ticket. Assigns CS, sets handling status, sends greeting."""
         user_id = self.cs_users.get(cs_name, 0)
         if not user_id:
-            from database import get_or_create_user
             u = get_or_create_user(cs_name, cs_name, "cs")
             user_id = u["id"]
         assign_ticket_cs(ticket_id, user_id)
-        from database import update_ticket_status
         update_ticket_status(ticket_id, TicketStatus.HANDLING.value)
         self.ticket_cs[ticket_id] = cs_name
         greeting = f"客服 {cs_name} 为您服务"
@@ -153,7 +157,6 @@ class WSClients:
 
     def _create_ticket_for_customer(self, customer_id: str, content: str) -> int:
         """Create a ticket on first customer message. No auto-assignment."""
-        from database import get_or_create_user
         user = get_or_create_user(customer_id, customer_id, "customer")
         title = content[:80] if len(content) > 80 else content
         ticket_id = insert_ticket({
@@ -184,7 +187,6 @@ class WSClients:
 
     async def handle_escalate(self, ticket_id: int, reason: str = ""):
         """CS escalates ticket to RD. Notify RD agents, remove CS from ticket."""
-        from database import escalate_ticket as db_escalate
         db_escalate(ticket_id, reason or "客服主动升级")
         insert_message(ticket_id, "system", "系统", "正在为您升级工单，工程师即将接入")
         update_ticket_status_db(ticket_id, TicketStatus.ESCALATED.value)
@@ -207,7 +209,6 @@ class WSClients:
             })
         self.ticket_cs.pop(ticket_id, None)
         # Clear assigned_cs so ticket leaves CS session list
-        from database import clear_ticket_cs
         clear_ticket_cs(ticket_id)
 
         # Notify all RD agents
@@ -225,7 +226,6 @@ class WSClients:
         """RD accepts an escalated ticket. Takes over the conversation."""
         user_id = self.rd_users.get(rd_name, 0)
         if not user_id:
-            from database import get_or_create_user
             u = get_or_create_user(rd_name, rd_name, "rd")
             user_id = u["id"]
         assign_ticket_rd(ticket_id, user_id)
@@ -244,13 +244,12 @@ class WSClients:
         """Agent ends service. Notify customer to fill satisfaction survey."""
         end_ticket_service(ticket_id)
         # Resolve any open escalation
-        from database import get_conn as _gc
-        _gc().execute(
+        get_conn().execute(
             "UPDATE escalations SET resolved_at = datetime('now') "
             "WHERE ticket_id = ? AND resolved_at IS NULL",
             (ticket_id,)
         )
-        _gc().commit()
+        get_conn().commit()
         insert_message(ticket_id, "system", "系统", "服务已结束")
 
         await self.send_to_customer(ticket_id, {
@@ -277,7 +276,6 @@ class WSClients:
 
     async def handle_satisfaction(self, ticket_id: int, resolved: str, feedback_text: str = ""):
         """Customer submits satisfaction feedback."""
-        from database import insert_satisfaction_feedback
         insert_satisfaction_feedback(ticket_id, resolved, feedback_text)
 
     def get_available_cs_count(self) -> int:
@@ -289,7 +287,6 @@ class WSClients:
 
 def update_ticket_status_db(ticket_id: int, status: str):
     """Update ticket status in database."""
-    from database import update_ticket_status
     update_ticket_status(ticket_id, status)
 
 
