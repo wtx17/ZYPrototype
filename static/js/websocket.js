@@ -2,6 +2,14 @@ const WS_URL_BASE = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + l
 
 let agentWs = null;
 let messageHandlers = {};
+let _statusCallback = null;
+
+export function onConnectionChange(fn) {
+  _statusCallback = fn;
+  if (fn) {
+    fn(isConnected());
+  }
+}
 
 export function connectAgentWs(sessionId) {
   if (agentWs && agentWs.readyState === WebSocket.OPEN) {
@@ -14,6 +22,7 @@ export function connectAgentWs(sessionId) {
 
   agentWs.onopen = () => {
     console.log('Agent WS connected');
+    _statusCallback?.(true);
     if (messageHandlers.connected) messageHandlers.connected();
   };
 
@@ -27,12 +36,14 @@ export function connectAgentWs(sessionId) {
 
   agentWs.onclose = () => {
     console.log('Agent WS disconnected');
+    _statusCallback?.(false);
     if (messageHandlers.disconnected) messageHandlers.disconnected();
     agentWs = null;
   };
 
   agentWs.onerror = (err) => {
     console.error('Agent WS error', err);
+    _statusCallback?.(false);
   };
 
   return agentWs;

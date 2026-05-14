@@ -30,9 +30,9 @@ export async function initCSSessions() {
   window._csPollInterval = setInterval(() => loadAgentSessions(), 5000);
 
   setHandler('customer_message', (payload) => {
-    // A new customer message arrived - refresh session list
+    // Customer sent a message → they are online
+    state.onlineCustomers[payload.ticket_id] = true;
     loadAgentSessions();
-    // If we're viewing this ticket's session, update messages
     if (state.activeSessionId === payload.ticket_id) {
       reloadWorkspaceMessages(payload.ticket_id);
     }
@@ -63,6 +63,18 @@ export async function initCSSessions() {
     }
     loadAgentSessions();
     if (window.app) window.app.renderApp();
+  });
+
+  setHandler('customer_online', (payload) => {
+    state.onlineCustomers[payload.ticket_id] = true;
+    loadAgentSessions();
+    if (state.activeSessionId === payload.ticket_id && window.app) window.app.renderApp();
+  });
+
+  setHandler('customer_offline', (payload) => {
+    state.onlineCustomers[payload.ticket_id] = false;
+    loadAgentSessions();
+    if (state.activeSessionId === payload.ticket_id && window.app) window.app.renderApp();
   });
 
   setHandler('new_escalation', (payload) => {

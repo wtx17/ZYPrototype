@@ -13,6 +13,9 @@ export const state = {
   aiQueryResult: null,
   aiMessages: [],
   aiLoading: false,
+
+  // Customer online status: ticket_id -> bool
+  onlineCustomers: {},
 };
 
 export function resetChatState() {

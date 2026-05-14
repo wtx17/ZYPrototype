@@ -68,6 +68,28 @@ class WSClients:
 
     async def unregister_customer(self, customer_id: str):
         self.customers.pop(customer_id, None)
+        for tid, cid in list(self.ticket_map.items()):
+            if cid == customer_id:
+                await self.notify_customer_status(tid, False)
+
+    async def notify_customer_status(self, ticket_id: int, online: bool):
+        """Send customer online/offline status to the assigned agent."""
+        msg = {
+            "type": "customer_online" if online else "customer_offline",
+            "payload": {"ticket_id": ticket_id},
+        }
+        cs_name = self.ticket_cs.get(ticket_id)
+        if cs_name and cs_name in self.cs_agents:
+            try:
+                await self.cs_agents[cs_name].send_json(msg)
+            except Exception:
+                pass
+        rd_name = self.ticket_rd.get(ticket_id)
+        if rd_name and rd_name in self.rd_agents:
+            try:
+                await self.rd_agents[rd_name].send_json(msg)
+            except Exception:
+                pass
 
     async def unregister_cs(self, username: str):
         self.cs_agents.pop(username, None)

@@ -29,7 +29,20 @@ export async function initRDSessions() {
     loadAgentSessions();
   });
 
+  setHandler('customer_online', (payload) => {
+    state.onlineCustomers[payload.ticket_id] = true;
+    loadAgentSessions();
+    if (state.activeSessionId === payload.ticket_id && window.app) window.app.renderApp();
+  });
+
+  setHandler('customer_offline', (payload) => {
+    state.onlineCustomers[payload.ticket_id] = false;
+    loadAgentSessions();
+    if (state.activeSessionId === payload.ticket_id && window.app) window.app.renderApp();
+  });
+
   setHandler('customer_message', (payload) => {
+    state.onlineCustomers[payload.ticket_id] = true;
     if (state.activeSessionId === payload.ticket_id) {
       reloadWorkspaceMessages(payload.ticket_id);
     }

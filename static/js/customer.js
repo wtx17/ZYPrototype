@@ -53,18 +53,20 @@ function connect(token) {
   };
 
   ws.onclose = (event) => {
-    // If server restarted, token is invalid — clear and retry
-    if (event.code === 4001 && !feedbackShown) {
+    if (feedbackShown) return;
+
+    if (event.code === 4001) {
+      // Server restarted — token invalid, get a new one
       sessionStorage.removeItem('customer_token');
       sessionStorage.removeItem('customer_id');
       addSystemMessage('会话已过期，正在重新连接...');
       setTimeout(() => init(), 1000);
       return;
     }
-    setStatus('连接断开', 'disconnected');
-    if (!feedbackShown) {
-      addSystemMessage('连接已断开，请刷新页面重新连接');
-    }
+
+    // Network hiccup, timeout, etc. — reconnect with same token
+    setStatus('重连中...', 'disconnected');
+    setTimeout(() => connect(token), 2000);
   };
 
   ws.onerror = () => {
