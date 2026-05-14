@@ -1,4 +1,4 @@
-import { setUnauthorizedHandler } from './api.js';
+import { api, setUnauthorizedHandler } from './api.js';
 import { checkAuth, handleUnauthorized, login, logout, setRenderApp } from './auth.js';
 import { roleLabels, roleTabs, tabLabels } from './config.js';
 import { doEscalate, loadTickets, showHandlingForm, showTicketDetail } from './features/tickets.js';
@@ -157,6 +157,21 @@ export function renderApp() {
   root.innerHTML = renderMain();
   _initWsStatus();
   switchTab(state.currentTab);
+  loadKeywordIndex();
+  _initKwLinkDelegation();
+}
+
+function _initKwLinkDelegation() {
+  document.getElementById('app')?.addEventListener('click', (e) => {
+    const link = e.target.closest('.kw-link');
+    if (!link) return;
+    e.preventDefault();
+    const slug = link.getAttribute('data-wiki-slug');
+    if (slug) {
+      switchTab('wiki-browser');
+      loadWikiPage(slug);
+    }
+  });
 }
 
 export function switchTab(name) {
@@ -261,7 +276,22 @@ window.app = {
   closeLinkSearchModal,
   searchWikiPagesForLink,
   insertWikiLink,
+
+  // Keyword index
+  loadKeywordIndex,
 };
+
+export async function loadKeywordIndex() {
+  if (state.keywordIndex.length > 0) return;
+  try {
+    const resp = await api('/api/wiki/keyword-index');
+    if (resp.success && resp.data) {
+      state.keywordIndex = resp.data;
+    }
+  } catch (e) {
+    // Best-effort; don't break anything if it fails
+  }
+}
 
 function autoLoginFromPath() {
   const path = location.pathname.replace(/\/$/, '');

@@ -82,6 +82,7 @@ from database import (
     list_pending_review_pages,
     submit_for_review,
     get_related_pages,
+    list_wiki_keywords,
     approve_page,
     reject_page,
     list_approved_d1_pages,
@@ -522,6 +523,17 @@ async def get_wiki_tree(request: Request):
     is_doc = role == "doc"
     tree = build_wiki_tree(include_d2=include_d2, is_doc=is_doc)
     return {"success": True, "data": tree}
+
+
+@app.get("/api/wiki/keyword-index")
+async def get_wiki_keyword_index(request: Request):
+    """Return keyword→slug mapping for auto-linking in chat messages."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    if session["role"] in ("rd", "doc"):
+        items = list_wiki_keywords()
+    else:
+        items = list_wiki_keywords(knowledge_type="d1")
+    return {"success": True, "data": items}
 
 
 @app.get("/api/wiki/search")

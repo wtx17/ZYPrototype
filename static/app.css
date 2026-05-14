@@ -976,6 +976,16 @@ tr:last-child td {
   color: var(--blue-dark);
 }
 
+.kw-link {
+  color: var(--blue);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.kw-link:hover {
+  color: var(--blue-dark);
+}
+
 .ai-confidence {
   display: inline-block;
   margin-top: 8px;

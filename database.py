@@ -472,6 +472,21 @@ def reject_page(page_id: int) -> bool:
     return update_wiki_page(page_id, {"status": "draft"})
 
 
+def list_wiki_keywords(knowledge_type: Optional[str] = None) -> list[dict]:
+    """Return title, slug, keywords for all accessible pages (lightweight, for keyword→link matching)."""
+    c = get_conn()
+    if knowledge_type:
+        rows = c.execute(
+            "SELECT title, slug, keywords FROM wiki_pages WHERE knowledge_type = ?",
+            (knowledge_type,)
+        ).fetchall()
+    else:
+        rows = c.execute(
+            "SELECT title, slug, keywords FROM wiki_pages"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ==================== D1 / D2 queries for ChromaDB and agent ====================
 
 def list_approved_d1_pages() -> list[dict]:

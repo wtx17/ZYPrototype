@@ -1,6 +1,56 @@
 import { escHtml } from './utils.js';
 import { state } from './state.js';
 
+// Build sorted term→slug map (longest terms first to avoid partial matches)
+let _kwTerms = null;
+function getKwTerms() {
+  if (_kwTerms) return _kwTerms;
+  const map = new Map();
+  for (const entry of state.keywordIndex) {
+    const terms = [entry.title];
+    if (entry.keywords) {
+      entry.keywords.split(',').forEach(kw => {
+        const t = kw.trim();
+        if (t) terms.push(t);
+      });
+    }
+    for (const term of terms) {
+      if (term.length < 2) continue;
+      const existing = map.get(term);
+      if (!existing || existing.length < entry.slug.length) {
+        map.set(term, entry.slug);
+      }
+    }
+  }
+  _kwTerms = Array.from(map.entries())
+    .sort((a, b) => b[0].length - a[0].length);
+  return _kwTerms;
+}
+
+function linkifyKeywords(text) {
+  if (!text) return '';
+  const safe = escHtml(text);
+  const terms = getKwTerms();
+  if (!terms.length) return safe;
+
+  // Escape regex special chars in terms, build alternation
+  const escapedTerms = terms.map(([term]) =>
+    term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  );
+  const regex = new RegExp(escapedTerms.join('|'), 'gi');
+
+  // Build lookup for replacement
+  const slugMap = new Map(terms.map(([t, s]) => [t.toLowerCase(), s]));
+
+  return safe.replace(regex, (match) => {
+    const slug = slugMap.get(match.toLowerCase());
+    if (slug) {
+      return `<a href="#" class="kw-link" data-wiki-slug="${slug}" title="查看文档: ${match}">${match}</a>`;
+    }
+    return match;
+  });
+}
+
 export function renderAgentChatBubble(msg, index) {
   const side = msg.sender_type === 'customer' ? 'customer'
     : msg.sender_type === 'system' ? 'system'
@@ -9,7 +59,7 @@ export function renderAgentChatBubble(msg, index) {
   if (side === 'system') {
     return `
       <div class="msg-system">
-        <span class="msg-system-text">${escHtml(msg.content)}</span>
+        <span class="msg-system-text">${linkifyKeywords(msg.content)}</span>
       </div>`;
   }
 
@@ -23,7 +73,7 @@ export function renderAgentChatBubble(msg, index) {
         <span class="msg-time">${formatTime(msg.created_at)}</span>
       </div>
       <div class="msg-bubble ${isCustomer ? 'bubble-customer' : 'bubble-agent'}">
-        ${escHtml(msg.content)}
+        ${linkifyKeywords(msg.content)}
       </div>
       ${isCustomer ? `
         <div class="msg-ask-btn">

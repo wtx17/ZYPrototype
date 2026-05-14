@@ -16,6 +16,9 @@ export const state = {
 
   // Customer online status: ticket_id -> bool
   onlineCustomers: {},
+
+  // Wiki keyword→slug index for auto-linking in chat
+  keywordIndex: [],
 };
 
 export function resetChatState() {
