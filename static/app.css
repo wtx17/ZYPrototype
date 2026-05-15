@@ -1408,6 +1408,7 @@ tr:last-child td {
   margin-bottom: 12px;
   font-weight: 500;
   color: #111;
+  scroll-margin-top: 100px;
 }
 
 .wiki-markdown h1 { font-size: 22px; }

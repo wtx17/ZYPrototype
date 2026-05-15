@@ -35,7 +35,7 @@ export function renderWikiBrowser() {
         </div>
       </div>
       <div class="wiki-toc-sidebar" id="wikiTOCSidebar">
-        <div class="wiki-toc-title">本文目录</div>
+        <div class="wiki-toc-title">本文导读</div>
         <div class="empty" id="wikiTOCTip" style="padding:10px;font-size:12px;color:var(--muted);">选择文档后显示</div>
       </div>
     </div>`;
@@ -96,7 +96,7 @@ function renderTreeNode(node, depth) {
           data-wiki-toggle="${node.id}"
           onclick="event.stopPropagation();app.toggleTreeNode(${node.id})">▸</span>
         <span class="wiki-tree-label ${isActive ? 'active' : ''} ${isD2Folder ? 'wiki-d2-folder' : ''} ${isDraft || isPending ? 'wiki-tree-dim' : ''}"
-          onclick="${node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : ''}">
+          onclick="${hasChildren ? `app.toggleTreeNode(${node.id})` : (node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : '')}">
           ${escHtml(node.title)}
           ${statusDot}
           ${isD2 ? '<span class="wiki-d2-dot" title="D2 研发知识库"></span>' : ''}
