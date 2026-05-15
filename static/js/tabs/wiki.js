@@ -358,28 +358,32 @@ function buildTOC(slug) {
 
   updateTOCList(sidebar, items);
 
-  // IntersectionObserver for scroll highlighting
-  if (window._wikiTocObserver) window._wikiTocObserver.disconnect();
-  const observer = new IntersectionObserver((entries) => {
-    let topEntry = null;
-    let minTop = Infinity;
-    for (const entry of entries) {
-      if (entry.isIntersecting) {
-        const top = entry.boundingClientRect.top;
-        if (top < minTop) {
-          minTop = top;
-          topEntry = entry;
+  // Scroll-based heading tracking: the current heading is the last one
+  // whose top edge is at or above the trigger line (just below the sticky header).
+  if (window._wikiTocScrollHandler) {
+    window.removeEventListener('scroll', window._wikiTocScrollHandler);
+  }
+  const TRIGGER_Y = 60; // px from viewport top, below the 48px sticky header
+  const handler = () => {
+    requestAnimationFrame(() => {
+      let activeId = null;
+      headings.forEach(h => {
+        if (h.getBoundingClientRect().top <= TRIGGER_Y) {
+          activeId = h.id;
         }
+      });
+      const links = sidebar.querySelectorAll('.wiki-toc-list a');
+      links.forEach(a => a.classList.remove('active'));
+      if (activeId) {
+        const link = sidebar.querySelector(`a[href="#${activeId}"]`);
+        if (link) link.classList.add('active');
       }
-    }
-    if (topEntry) {
-      sidebar.querySelectorAll('.wiki-toc-list a').forEach(a => a.classList.remove('active'));
-      const link = sidebar.querySelector(`a[href="#${topEntry.target.id}"]`);
-      if (link) link.classList.add('active');
-    }
-  }, { rootMargin: '-80px 0px -10% 0px' });
-  headings.forEach(h => observer.observe(h));
-  window._wikiTocObserver = observer;
+    });
+  };
+  window.addEventListener('scroll', handler, { passive: true });
+  window._wikiTocScrollHandler = handler;
+  // Fire once to set initial state
+  handler();
 }
 
 function updateTOCList(sidebar, items) {
