@@ -253,18 +253,39 @@ function buildBreadcrumbs(slug, page) {
   chain.reverse();
   chain.push({ title: page.title, slug: slug });
 
-  const homeSlug = _wikiTreeData.find(n => n.slug && n.source !== 'd2-folder')?.slug || '';
-
   return `
     <div class="wiki-breadcrumbs">
-      <a href="#" onclick="event.preventDefault();${homeSlug ? `app.loadWikiPage('${escHtml(homeSlug)}')` : "document.getElementById('wikiMain').innerHTML='<div class=\\'wiki-welcome\\'><h3>知识库浏览</h3><p>请从左侧目录选择文档。</p></div>'"}>首页</a>
+      <a href="#" onclick="event.preventDefault();document.getElementById('wikiMain').innerHTML='<div class=\\'wiki-welcome\\'><h3>知识库浏览</h3><p>请从左侧目录选择文档。</p></div>'">首页</a>
       ${chain.map((item, i) => {
         if (i === chain.length - 1) {
           return `<span class="sep">></span><span class="current">${escHtml(item.title)}</span>`;
         }
-        return `<span class="sep">></span><a href="#" onclick="event.preventDefault();app.loadWikiPage('${escHtml(item.slug)}')">${escHtml(item.title)}</a>`;
+        const firstLeaf = findFirstLeafSlug(item.slug);
+        return `<span class="sep">></span><a href="#" onclick="event.preventDefault();app.loadWikiPage('${escHtml(firstLeaf)}')">${escHtml(item.title)}</a>`;
       }).join('')}
     </div>`;
+}
+
+function findFirstLeafSlug(slug) {
+  const node = _findNodeBySlug(_wikiTreeData, slug);
+  if (!node) return slug;
+  return _firstLeafSlug(node);
+}
+
+function _firstLeafSlug(node) {
+  if (!node.children || node.children.length === 0) return node.slug;
+  return _firstLeafSlug(node.children[0]);
+}
+
+function _findNodeBySlug(nodes, slug) {
+  for (const n of nodes) {
+    if (n.slug === slug) return n;
+    if (n.children) {
+      const found = _findNodeBySlug(n.children, slug);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 function findAncestors(nodes, targetSlug, chain) {
