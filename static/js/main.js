@@ -19,23 +19,6 @@ import {
   renderDocReview,
   reviewKnowledge,
 } from './tabs/doc.js';
-import {
-  renderWikiBrowser,
-  loadWikiTree,
-  loadWikiPage,
-  showWikiEditor,
-  saveWikiPage,
-  deleteWikiPage,
-  submitPageForReview,
-  searchWiki,
-  searchWikiFromTOC,
-  filterWikiTree,
-  toggleTreeNode,
-  showLinkSearchModal,
-  closeLinkSearchModal,
-  searchWikiPagesForLink,
-  insertWikiLink,
-} from './tabs/wiki.js';
 import { loadMetrics, renderAllTickets, renderDashboard, loadManagerTickets, setTicketFilter } from './tabs/manager.js';
 import {
   renderRDEscalations,
@@ -56,6 +39,7 @@ import {
   closeAIPanel,
   backToSessionList,
   refreshSessions,
+  initWSResize,
 } from './agent-workspace.js';
 
 const tabRenderers = {
@@ -63,7 +47,6 @@ const tabRenderers = {
   tickets: renderCSTickets,
   escalations: renderRDEscalations,
   'review-knowledge': renderDocReview,
-  'wiki-browser': renderWikiBrowser,
   dashboard: renderDashboard,
   'all-tickets': renderAllTickets,
 };
@@ -96,9 +79,6 @@ function renderLogin() {
             <div class="role-desc">仪表盘 · 汇总</div>
           </a>
         </div>
-        <p style="margin-top:20px;font-size:12px;color:var(--muted);">
-          每个角色在独立标签页中运行，互不干扰
-        </p>
       </div>
     </div>`;
 }
@@ -125,7 +105,7 @@ function renderMain() {
         <button class="btn-sm" onclick="app.logout()">退出</button>
       </div>
     </div>
-    <nav>${navButtons}</nav>
+    ${tabs.length > 1 ? `<nav>${navButtons}</nav>` : ''}
     ${tabPanels}`;
 }
 
@@ -161,15 +141,17 @@ export function renderApp() {
   _initKwLinkDelegation();
 }
 
+let _kwDelegationInited = false;
 function _initKwLinkDelegation() {
+  if (_kwDelegationInited) return;
+  _kwDelegationInited = true;
   document.getElementById('app')?.addEventListener('click', (e) => {
     const link = e.target.closest('.kw-link');
     if (!link) return;
     e.preventDefault();
     const slug = link.getAttribute('data-wiki-slug');
     if (slug) {
-      switchTab('wiki-browser');
-      loadWikiPage(slug);
+      window.open('/wiki/' + encodeURIComponent(slug), '_blank');
     }
   });
 }
@@ -195,6 +177,9 @@ export function switchTab(name) {
   if (name === 'escalations' && state.role === 'rd') {
     initRDSessions();
   }
+  if (name === 'sessions' || name === 'escalations') {
+    setTimeout(initWSResize, 200);
+  }
   if (name === 'tickets') {
     void loadTickets();
   }
@@ -206,9 +191,6 @@ export function switchTab(name) {
   }
   if (name === 'review-knowledge') {
     void loadPendingReviews();
-  }
-  if (name === 'wiki-browser') {
-    void loadWikiTree();
   }
 }
 
@@ -260,22 +242,6 @@ window.app = {
   backToSessionList,
   refreshSessions,
   scrollChatBottom,
-
-  // Wiki browser
-  loadWikiTree,
-  loadWikiPage,
-  showWikiEditor,
-  saveWikiPage,
-  deleteWikiPage,
-  submitPageForReview,
-  searchWiki,
-  searchWikiFromTOC,
-  filterWikiTree,
-  toggleTreeNode,
-  showLinkSearchModal,
-  closeLinkSearchModal,
-  searchWikiPagesForLink,
-  insertWikiLink,
 
   // Keyword index
   loadKeywordIndex,

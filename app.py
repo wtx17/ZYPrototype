@@ -164,6 +164,15 @@ async def _serve_index():
     return {"message": "Page not found"}, 404
 
 
+@app.get("/wiki")
+@app.get("/wiki/{slug}")
+async def wiki_page(slug: str = ""):
+    wiki_path = os.path.join(os.path.dirname(__file__), "static", "wiki.html")
+    if os.path.exists(wiki_path):
+        return FileResponse(wiki_path)
+    return {"message": "Page not found"}, 404
+
+
 @app.get("/customer")
 async def customer_page():
     customer_path = os.path.join(os.path.dirname(__file__), "static", "customer.html")

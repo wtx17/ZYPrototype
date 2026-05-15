@@ -13,9 +13,7 @@ export function renderDocReview() {
 export async function loadPendingReviews() {
   const data = await api('/api/knowledge/pending');
   const container = document.getElementById('pendingReviewList');
-  if (!container) {
-    return;
-  }
+  if (!container) return;
 
   const entries = data.data || [];
   if (!entries.length) {
@@ -23,25 +21,27 @@ export async function loadPendingReviews() {
     return;
   }
 
-  let html = '<table><thead><tr><th>ID</th><th>标题</th><th>时间</th><th>操作</th></tr></thead><tbody>';
-  entries.forEach((entry) => {
-    html += `<tr>
-      <td>#${entry.id}</td>
-      <td>
-        <a href="#" onclick="event.preventDefault();app.switchTab('wiki-browser');setTimeout(()=>app.loadWikiPage('${escHtml(entry.slug)}'),100)" style="color:var(--primary);">
+  container.innerHTML = entries.map(entry => `
+    <div class="review-card">
+      <div class="review-card-header">
+        <a href="/wiki/${escHtml(entry.slug)}" target="_blank" class="review-card-title">
           ${escHtml(entry.title)}
         </a>
-      </td>
-      <td>${formatDate(entry.created_at || entry.updated_at)}</td>
-      <td>
-        <button class="btn-sm" onclick="app.reviewKnowledge(${entry.id}, 'approved')" style="color:#34c759;">通过</button>
-        <button class="btn-sm" onclick="app.reviewKnowledge(${entry.id}, 'rejected')" style="color:#ff3b30;">拒绝</button>
-      </td>
-    </tr>`;
-  });
-  html += '</tbody></table>';
-
-  container.innerHTML = html;
+        <div class="review-card-actions">
+          <button class="btn-sm" onclick="app.reviewKnowledge(${entry.id}, 'approved')" style="color:var(--success);font-weight:600;">通过</button>
+          <button class="btn-sm" onclick="app.reviewKnowledge(${entry.id}, 'rejected')" style="color:var(--danger);">驳回</button>
+        </div>
+      </div>
+      <div class="review-card-meta">
+        <span>提交人: ${escHtml(entry.owner || '-')}</span>
+        <span>${formatDate(entry.created_at || entry.updated_at)}</span>
+        ${entry.keywords ? `<span>关键词: ${escHtml(entry.keywords)}</span>` : ''}
+      </div>
+      ${entry.content ? `
+        <div class="review-card-preview">${escHtml(entry.content.substring(0, 180))}${entry.content.length > 180 ? '...' : ''}</div>
+      ` : ''}
+    </div>
+  `).join('');
 }
 
 export async function reviewKnowledge(id, status) {

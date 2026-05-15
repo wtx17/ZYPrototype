@@ -1,17 +1,12 @@
 import { api } from '../api.js';
 import { state } from '../state.js';
 import { toast } from '../utils.js';
-import { loadAgentSessions, renderSessionList, renderSessionWorkspace } from '../agent-workspace.js';
+import { loadAgentSessions, renderAgentWorkspaceLayout } from '../agent-workspace.js';
 
 // ==================== Main Tab Renderer ====================
 
 export function renderCSQuery() {
-  // If viewing a specific session, show workspace
-  if (state.activeSessionId && state.activeSession) {
-    return renderSessionWorkspace();
-  }
-  // Otherwise show session list
-  return renderSessionList();
+  return renderAgentWorkspaceLayout();
 }
 
 // ==================== Session Tab Helper ====================

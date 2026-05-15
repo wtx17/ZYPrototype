@@ -20,13 +20,14 @@ export function renderWikiBrowser() {
         </div>
         ${state.role === 'doc' ? `
           <div class="wiki-actions">
-            <button class="btn btn-primary btn-sm" onclick="app.showWikiEditor()">+ 新建页面</button>
+            <a href="#" class="wiki-new-page-link" onclick="event.preventDefault();app.showWikiEditor()">+ 新建页面</a>
           </div>
         ` : ''}
         <div class="wiki-tree" id="wikiTree">
           <div class="empty" style="padding:20px;">加载中...</div>
         </div>
       </div>
+      <div class="wiki-resize-handle" id="wikiResizeHandle"></div>
       <div class="wiki-main" id="wikiMain">
         <div class="wiki-welcome">
           <h3>知识库浏览</h3>
@@ -34,10 +35,6 @@ export function renderWikiBrowser() {
         </div>
       </div>
       <div class="wiki-toc-sidebar" id="wikiTOCSidebar">
-        <input type="text" class="wiki-inpage-search" id="wikiInpageSearch" placeholder="搜索文档..."
-          oninput="app.searchWikiFromTOC()"
-          onkeydown="if(event.key==='Escape'){this.value='';app.searchWikiFromTOC();}">
-        <div class="wiki-toc-results" id="wikiTOCResults" style="display:none;"></div>
         <div class="wiki-toc-title">本文目录</div>
         <div class="empty" id="wikiTOCTip" style="padding:10px;font-size:12px;color:var(--muted);">选择文档后显示</div>
       </div>
@@ -89,6 +86,9 @@ function renderTreeNode(node, depth) {
   const isDraft = st === 'draft';
   const isPending = st === 'pending_review';
 
+  const statusDot = isDraft ? '<span class="wiki-status-dot draft" title="草稿"></span>'
+    : isPending ? '<span class="wiki-status-dot pending" title="审核中"></span>' : '';
+
   return `
     <div class="wiki-tree-node" style="padding-left:${isD2Folder ? 0 : depth * 20}px;">
       <div class="wiki-tree-row">
@@ -98,9 +98,8 @@ function renderTreeNode(node, depth) {
         <span class="wiki-tree-label ${isActive ? 'active' : ''} ${isD2Folder ? 'wiki-d2-folder' : ''} ${isDraft || isPending ? 'wiki-tree-dim' : ''}"
           onclick="${node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : ''}">
           ${escHtml(node.title)}
-          ${isDraft ? '<span class="wiki-tree-badge draft">草稿</span>' : ''}
-          ${isPending ? '<span class="wiki-tree-badge pending">审核</span>' : ''}
-          ${isD2 ? '<span class="wiki-d2-badge">D2</span>' : ''}
+          ${statusDot}
+          ${isD2 ? '<span class="wiki-d2-dot" title="D2 研发知识库"></span>' : ''}
         </span>
       </div>
       ${hasChildren ? `
@@ -163,13 +162,13 @@ export async function loadWikiPage(slug) {
 
     const actionButtons = canEdit
       ? (st === 'draft'
-          ? `<button class="btn-sm btn-primary" onclick="app.submitPageForReview(${page.id})">提交审核</button>
-             <button class="btn-sm" onclick="app.showWikiEditor(${page.id})">编辑</button>
-             <button class="btn-sm" style="color:var(--red);" onclick="app.deleteWikiPage(${page.id})">删除</button>`
-          : `<button class="btn-sm" onclick="app.showWikiEditor(${page.id})">编辑</button>
-             <button class="btn-sm" style="color:var(--red);" onclick="app.deleteWikiPage(${page.id})">删除</button>`)
+          ? `<a href="#" class="wiki-action-link" onclick="event.preventDefault();app.submitPageForReview(${page.id})">提交审核</a>
+             <a href="#" class="wiki-action-link" onclick="event.preventDefault();app.showWikiEditor(${page.id})">编辑</a>
+             <a href="#" class="wiki-action-link wiki-action-danger" onclick="event.preventDefault();app.deleteWikiPage(${page.id})">删除</a>`
+          : `<a href="#" class="wiki-action-link" onclick="event.preventDefault();app.showWikiEditor(${page.id})">编辑</a>
+             <a href="#" class="wiki-action-link wiki-action-danger" onclick="event.preventDefault();app.deleteWikiPage(${page.id})">删除</a>`)
       : (isLocked && (role === 'doc' || role === 'rd')
-          ? '<span style="flex:1;text-align:right;font-size:12px;color:var(--muted);">审核中，无法编辑</span>' : '');
+          ? '<span style="font-size:12px;color:var(--muted);">审核中，无法编辑</span>' : '');
 
     const metaTags = [
       isD2 ? '<span class="wiki-d2-label">研发知识库 (D2)</span>' : '',
@@ -303,16 +302,12 @@ function getPrevNext(slug, page) {
 
   return `
     <div class="wiki-prev-next">
-      <div style="flex:1;">
-        ${prev ? `<a href="#" onclick="event.preventDefault();app.loadWikiPage('${escHtml(prev.slug)}')">
+      ${prev ? `<a href="#" class="prev-link" onclick="event.preventDefault();app.loadWikiPage('${escHtml(prev.slug)}')">
           <span class="prev-label">上一篇</span>${escHtml(prev.title)}
-        </a>` : ''}
-      </div>
-      <div style="flex:1;">
-        ${next ? `<a href="#" class="next-link" onclick="event.preventDefault();app.loadWikiPage('${escHtml(next.slug)}')">
+        </a>` : '<span style="flex:1;"></span>'}
+      ${next ? `<a href="#" class="next-link" onclick="event.preventDefault();app.loadWikiPage('${escHtml(next.slug)}')">
           <span class="next-label">下一篇</span>${escHtml(next.title)}
-        </a>` : ''}
-      </div>
+        </a>` : '<span style="flex:1;"></span>'}
     </div>`;
 }
 

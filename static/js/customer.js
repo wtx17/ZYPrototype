@@ -118,8 +118,24 @@ function handleMessage(data) {
   }
 }
 
+let _lastMsgTime = 0;
+
+function maybeAddTimeDivider(container) {
+  const now = Date.now();
+  const d = new Date();
+  const timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  if (now - _lastMsgTime > 120000) {
+    const div = document.createElement('div');
+    div.className = 'msg-time-divider';
+    div.textContent = timeStr;
+    container.appendChild(div);
+  }
+  _lastMsgTime = now;
+}
+
 function addMessage(side, content, senderName) {
   const container = document.getElementById('chatMessages');
+  maybeAddTimeDivider(container);
   const senderLabel = side === 'customer' ? '' : (senderName || '');
   const row = document.createElement('div');
   row.className = `msg-row ${side}`;
@@ -132,6 +148,7 @@ function addMessage(side, content, senderName) {
 
 function addSystemMessage(content) {
   const container = document.getElementById('chatMessages');
+  maybeAddTimeDivider(container);
   const row = document.createElement('div');
   row.className = 'msg-row system';
   row.innerHTML = `<div class="msg-bubble">${escHtml(content)}</div>`;
@@ -163,17 +180,22 @@ function showFeedback() {
   feedbackShown = true;
   selectedRating = null;
   document.getElementById('chatInputArea').style.display = 'none';
-  document.getElementById('feedbackArea').style.display = 'block';
+  document.getElementById('feedbackArea').style.display = 'block'; // Inline bottom block
 }
 
 export function selectRating(rating) {
   selectedRating = rating;
   const yesBtn = document.querySelector('.feedback-btn.yes');
   const noBtn = document.querySelector('.feedback-btn.no');
-  if (yesBtn) yesBtn.style.background = rating === 'yes' ? '#34c759' : '';
-  if (yesBtn) yesBtn.style.color = rating === 'yes' ? '#fff' : '#34c759';
-  if (noBtn) noBtn.style.background = rating === 'no' ? '#ff3b30' : '';
-  if (noBtn) noBtn.style.color = rating === 'no' ? '#fff' : '#ff3b30';
+  
+  if (yesBtn) {
+    if (rating === 'yes') yesBtn.classList.add('selected');
+    else yesBtn.classList.remove('selected');
+  }
+  if (noBtn) {
+    if (rating === 'no') noBtn.classList.add('selected');
+    else noBtn.classList.remove('selected');
+  }
 }
 
 export async function submitFeedback() {
@@ -191,14 +213,49 @@ export async function submitFeedback() {
     payload: { ticket_id: ticketId, resolved: selectedRating, feedback_text: feedbackText },
   }));
 
-  document.getElementById('feedbackArea').innerHTML =
-    '<div style="text-align:center;padding:20px;color:#666;">感谢您的反馈！</div>';
+  document.getElementById('feedbackArea').innerHTML = `
+    <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-height: 200px;">
+      <div style="font-size: 48px; margin-bottom:16px;">✨</div>
+      <div style="font-size: 18px; font-weight:600; color:#1d1d1f;">感谢您的反馈！</div>
+      <div style="color:#86868b; margin-top:8px;">本次会话已圆满结束</div>
+    </div>`;
 
   setTimeout(() => { ws.close(); }, 1000);
 }
 
 window.sendMessage = sendMessage;
+
+function initDividerResize() {
+  const handle = document.querySelector('.chat-input-divider');
+  const inputArea = document.getElementById('chatInputArea');
+  if (!handle || !inputArea) return;
+
+  let dragging = false, startY = 0, startH = 0;
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true; startY = e.clientY; startH = inputArea.offsetHeight;
+    handle.style.background = '#007aff';
+    document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const h = Math.min(300, Math.max(60, startH + startY - e.clientY));
+    inputArea.style.height = h + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.style.background = '';
+    document.body.style.cursor = ''; document.body.style.userSelect = '';
+  });
+}
+
 window.selectRating = selectRating;
 window.submitFeedback = submitFeedback;
 
-init();
+// init after DOM ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => { init(); initDividerResize(); });
+} else {
+  init(); initDividerResize();
+}

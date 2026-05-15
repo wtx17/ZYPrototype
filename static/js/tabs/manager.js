@@ -24,44 +24,43 @@ export async function loadMetrics() {
     const display = document.getElementById('metricsDisplay');
     if (!display) return;
 
+    const redRate = m.red_rate || 0;
     display.innerHTML = `
       <div class="dashboard-section">
-        <div class="dashboard-section-title">工单概览</div>
+        <div class="dashboard-section-title">工单</div>
         <div class="metrics-grid">
-          ${metricCard('本周新建', m.week_tickets, 'var(--primary)')}
-          ${metricCard('待处理', m.pending_tickets, '#ff9500')}
-          ${metricCard('升级待接管', m.escalated_waiting, m.escalated_waiting > 0 ? 'var(--red)' : 'var(--muted)')}
-          ${metricCard('升级处理中', m.escalated_count - m.escalated_waiting, m.escalated_count > m.escalated_waiting ? '#ff9500' : 'var(--muted)')}
-          ${metricCard('好评', m.satisfaction_yes || 0, 'var(--green)')}
-          ${metricCard('差评', m.satisfaction_no || 0, m.satisfaction_no > 0 ? 'var(--red)' : 'var(--muted)')}
+          ${metricCard('本周新建', m.week_tickets)}
+          ${metricCard('待处理', m.pending_tickets, m.pending_tickets > 0 ? 'var(--warning)' : '')}
+          ${metricCard('升级中', m.escalated_count, m.escalated_count > 0 ? 'var(--danger)' : '')}
+          ${metricCard('已关闭', (m.total_tickets || 0) - (m.pending_tickets || 0) - (m.escalated_count || 0))}
         </div>
       </div>
 
       <div class="dashboard-section">
         <div class="dashboard-section-title">AI 质量</div>
         <div class="metrics-grid">
-          ${metricCard('平均置信度', (m.avg_confidence * 100).toFixed(0) + '%', m.avg_confidence >= 0.8 ? 'var(--green)' : m.avg_confidence >= 0.6 ? 'var(--yellow)' : 'var(--red)')}
-          ${metricCard('今日 AI 查询', m.ai_queries_today)}
-          ${metricCard('绿色率', (m.green_rate * 100).toFixed(0) + '%', 'var(--green)')}
-          ${metricCard('红色率', (m.red_rate * 100).toFixed(0) + '%', 'var(--red)')}
+          ${metricCard('平均置信度', (m.avg_confidence * 100).toFixed(0) + '%', m.avg_confidence >= 0.8 ? 'var(--success)' : m.avg_confidence >= 0.6 ? 'var(--warning)' : 'var(--danger)')}
+          ${metricCard('今日查询', m.ai_queries_today)}
+          ${metricCard('绿色率', (m.green_rate * 100).toFixed(0) + '%', 'var(--success)')}
+          ${metricCard('红色率', (redRate * 100).toFixed(0) + '%', redRate > 0.2 ? 'var(--danger)' : redRate > 0.1 ? 'var(--warning)' : '')}
+        </div>
+      </div>
+
+      <div class="dashboard-section">
+        <div class="dashboard-section-title">满意度</div>
+        <div class="metrics-grid">
+          ${metricCard('好评', m.satisfaction_yes || 0, 'var(--success)')}
+          ${metricCard('差评', m.satisfaction_no || 0, m.satisfaction_no > 0 ? 'var(--danger)' : '')}
+          ${metricCard('好评率', ((m.satisfaction_yes || 0) + (m.satisfaction_no || 0) > 0 ? ((m.satisfaction_yes || 0) / ((m.satisfaction_yes || 0) + (m.satisfaction_no || 0)) * 100).toFixed(0) + '%' : '-'), 'var(--success)')}
         </div>
       </div>
 
       <div class="dashboard-section">
         <div class="dashboard-section-title">知识库</div>
         <div class="metrics-grid">
-          ${metricCard('D1 已审核', m.d1_doc_count, 'var(--primary)')}
-          ${metricCard('D2 研发', m.d2_doc_count, '#ff9500')}
-          ${metricCard('待审核', m.pending_review_count, m.pending_review_count > 0 ? 'var(--yellow)' : 'var(--muted)')}
-        </div>
-      </div>
-
-      <div class="dashboard-section">
-        <div class="dashboard-section-title">团队</div>
-        <div class="metrics-grid">
-          ${metricCard('客服', m.cs_count || '-')}
-          ${metricCard('研发', m.rd_count || '-')}
-          ${metricCard('文档', m.doc_count || '-')}
+          ${metricCard('D1 已审核', m.d1_doc_count, 'var(--cs)')}
+          ${metricCard('D2 研发', m.d2_doc_count, 'var(--rd)')}
+          ${metricCard('待审核', m.pending_review_count, m.pending_review_count > 0 ? 'var(--warning)' : '')}
         </div>
       </div>
     `;
@@ -137,12 +136,15 @@ export async function loadManagerTickets() {
       return;
     }
 
-    let html = '<table><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>创建时间</th></tr></thead><tbody>';
+    let html = '<table class="tickets-table"><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>创建时间</th></tr></thead><tbody>';
     tickets.forEach((ticket) => {
       let status = statusLabels[ticket.status] || ticket.status;
       let statusCls = ticket.status;
+      let barColor = ticket.status === 'closed' || ticket.service_ended ? 'var(--success)'
+        : ticket.status === 'escalated' ? 'var(--danger)'
+        : ticket.status === 'handling' ? 'var(--cs)'
+        : 'var(--warning)';
 
-      // Distinguish escalated: waiting vs handling
       if (ticket.status === 'escalated') {
         if (!ticket.assigned_rd_id) {
           status = '等待接管';
@@ -150,12 +152,13 @@ export async function loadManagerTickets() {
         } else {
           status = '研发处理中';
           statusCls = 'escalated-handling';
+          barColor = 'var(--rd)';
         }
       }
 
-      html += `<tr>
-        <td>#${ticket.id}</td>
-        <td>${escHtml(ticket.title).substring(0, 50)}</td>
+      html += `<tr style="border-left:3px solid ${barColor};">
+        <td class="ticket-id-cell">#${ticket.id}</td>
+        <td class="ticket-title-cell">${escHtml(ticket.title).substring(0, 60)}</td>
         <td><span class="status-tag ${statusCls}">${status}</span></td>
         <td>${formatDate(ticket.created_at)}</td>
       </tr>`;

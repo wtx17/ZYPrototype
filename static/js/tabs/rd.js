@@ -1,15 +1,12 @@
 import { api } from '../api.js';
 import { state } from '../state.js';
 import { toast } from '../utils.js';
-import { loadAgentSessions, renderSessionList, renderSessionWorkspace } from '../agent-workspace.js';
+import { loadAgentSessions, renderAgentWorkspaceLayout } from '../agent-workspace.js';
 
 // ==================== Main Tab Renderer ====================
 
 export function renderRDEscalations() {
-  if (state.activeSessionId && state.activeSession) {
-    return renderSessionWorkspace();
-  }
-  return renderSessionList();
+  return renderAgentWorkspaceLayout();
 }
 
 export async function initRDSessions() {

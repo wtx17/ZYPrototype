@@ -23,8 +23,9 @@ export async function loadAgentSessions() {
     const statusCls = t.status === 'escalated' ? 'escalated' : t.status === 'pending' ? 'pending' : 'ai_processing';
     const online = state.onlineCustomers[t.id];
     const onlineDot = online ? '<span class="online-dot" title="客户在线"></span>' : '<span class="online-dot offline" title="客户离线"></span>';
+    const isActive = t.id === state.activeSessionId ? ' background: rgba(0,122,255,0.08);' : '';
     return `
-      <div class="session-row" onclick="app.openSession(${t.id})">
+      <div class="session-row" onclick="app.openSession(${t.id})" style="${isActive}">
         <div class="session-top">
           <span class="session-id">#${t.id}</span>
           ${onlineDot}
@@ -36,16 +37,137 @@ export async function loadAgentSessions() {
   }).join('');
 }
 
-export function renderSessionList() {
+export function initWSResize() {
+  const handle = document.getElementById('wsResizeHandle');
+  const sidebar = document.getElementById('wsSidebar');
+  if (handle && sidebar) {
+    let dragging = false, startX = 0, startWidth = 0;
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true; startX = e.clientX; startWidth = sidebar.offsetWidth;
+      handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const w = Math.min(500, Math.max(200, startWidth + e.clientX - startX));
+      sidebar.style.width = w + 'px';
+      sidebar.style.flex = '0 0 ' + w + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
+
+  // Input area vertical resize
+  const inputHandle = document.getElementById('wsInputDivider');
+  const inputArea = document.getElementById('wsInputArea');
+  if (inputHandle && inputArea) {
+    let draggingV = false, startY = 0, startHeight = 0;
+    inputHandle.addEventListener('mousedown', (e) => {
+      draggingV = true; startY = e.clientY; startHeight = inputArea.offsetHeight;
+      inputHandle.classList.add('active');
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!draggingV) return;
+      const h = Math.min(300, Math.max(60, startHeight + startY - e.clientY));
+      inputArea.style.height = h + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!draggingV) return;
+      draggingV = false;
+      inputHandle.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
+
+  // AI sheet input vertical resize
+  const aiInputHandle = document.getElementById('aiSheetInputDivider');
+  const aiInputArea = document.getElementById('aiSheetInputArea');
+  if (aiInputHandle && aiInputArea) {
+    let draggingV = false, startY = 0, startH = 0;
+    aiInputHandle.addEventListener('mousedown', (e) => {
+      draggingV = true; startY = e.clientY; startH = aiInputArea.offsetHeight;
+      aiInputHandle.classList.add('active');
+      document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!draggingV) return;
+      const h = Math.min(300, Math.max(60, startH + startY - e.clientY));
+      aiInputArea.style.height = h + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!draggingV) return;
+      draggingV = false;
+      aiInputHandle.classList.remove('active');
+      document.body.style.cursor = ''; document.body.style.userSelect = '';
+    });
+  }
+
+  // AI sheet width resize
+  const aiSheet = document.getElementById('aiSheet');
+  const aiHandle = document.getElementById('aiSheetResizeHandle');
+  if (aiSheet && aiHandle) {
+    let draggingW = false, startX = 0, startW = 0;
+    aiHandle.addEventListener('mousedown', (e) => {
+      draggingW = true; startX = e.clientX; startW = aiSheet.offsetWidth;
+      aiHandle.classList.add('active');
+      document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!draggingW) return;
+      const w = Math.min(700, Math.max(300, startW + startX - e.clientX));
+      aiSheet.style.width = w + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!draggingW) return;
+      draggingW = false;
+      aiHandle.classList.remove('active');
+      document.body.style.cursor = ''; document.body.style.userSelect = '';
+    });
+  }
+}
+
+export function renderAgentWorkspaceLayout() {
+  const w = state.sidebarWidth || 300;
+
+  let rightContent = '';
+  if (state.activeSessionId && state.activeSession) {
+    rightContent = renderSessionWorkspace();
+  } else {
+    rightContent = `
+      <div class="card" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+        <div style="flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
+           <div style="font-size:48px;color:#ccc;margin-bottom:16px;">💬</div>
+           <div style="color:var(--text-secondary);">请在左侧选择一个会话</div>
+        </div>
+      </div>`;
+  }
+
   return `
-    <div class="card" style="height:100%;display:flex;flex-direction:column;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h3 style="margin:0;">${state.role === 'cs' ? '客户会话' : '升级工单'}</h3>
-        <button class="btn btn-outline btn-sm" onclick="app.refreshSessions()">刷新</button>
+    <div class="ws-layout" id="wsLayout">
+      <div class="card" id="wsSidebar" style="width:${w}px; flex:0 0 ${w}px; display:flex; flex-direction:column; min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;">${state.role === 'cs' ? '客户会话' : '升级工单'}</h3>
+          <button class="btn btn-sm" onclick="app.refreshSessions()">刷新</button>
+        </div>
+        <div id="sessionList" style="flex:1; overflow-y:auto;">
+          <div class="empty">加载中...</div>
+        </div>
       </div>
-      <div id="sessionList" style="flex:1;overflow-y:auto;">
-        <div class="empty">加载中...</div>
-      </div>
+      <div class="ws-resize-handle" id="wsResizeHandle"></div>
+      ${rightContent}
     </div>`;
 }
 
@@ -55,7 +177,6 @@ export function renderSessionWorkspace() {
   const ticket = state.activeSession;
   if (!ticket) return '<div class="empty">请选择一个会话</div>';
 
-  const leftWidth = state.aiPanelVisible ? '40%' : '100%';
   const csAccepted = ticket.assigned_cs_id;
   const rdAccepted = ticket.assigned_rd_id;
   const canSend = (state.role === 'cs' && csAccepted) || (state.role === 'rd' && rdAccepted);
@@ -65,81 +186,79 @@ export function renderSessionWorkspace() {
     : '<span class="online-badge offline">○ 客户离线</span>';
 
   return `
-    <div style="display:flex;height:calc(100vh - 200px);gap:16px;">
-      <div style="flex:0 0 ${leftWidth};display:flex;flex-direction:column;transition:flex 0.3s;min-width:0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;min-height:36px;">
-          ${state.aiPanelVisible ? `
-            <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
-            ${onlineBadge}
-            <div>
-              ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
-                <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
-              ` : ''}
-              ${state.role === 'rd' && !rdAccepted ? `
-                <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
-              ` : ''}
-            </div>
-          ` : `
-            <button class="btn-sm" onclick="app.backToSessionList()">← 返回列表</button>
-            <span class="status-tag ${ticket.status || 'pending'}">${ticket.status || 'pending'}</span>
-            ${onlineBadge}
-            <div style="display:flex;gap:8px;">
-              ${state.role === 'cs' && !csAccepted ? `
-                <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
-              ` : ''}
-              ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
-                <button class="btn btn-outline btn-sm" style="color:var(--red);" onclick="app.escalateSession(${ticket.id})">升级工单</button>
-              ` : ''}
-              ${state.role === 'rd' && !rdAccepted ? `
-                <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
-              ` : ''}
-              <button class="btn btn-outline btn-sm" onclick="app.askAIDirectly(${ticket.id})">询问 AI 助手</button>
-              ${canSend ? renderEndServiceButton(ticket.id) : ''}
-            </div>
-          `}
-        </div>
-        <div id="sessionChatMessages" style="flex:1;overflow-y:auto;padding:8px;background:rgba(255,255,255,0.3);border-radius:12px;margin-bottom:8px;">
-          ${renderMessages(state.sessionMessages || [])}
-        </div>
+    <div class="card" style="display:flex;flex-direction:column;flex:1;min-width:0;position:relative;">
+      <div class="ws-header">
+        <span style="font-weight:600;">#${ticket.id}</span>
+        <span class="status-tag ${ticket.status || 'pending'}">${ticket.status || 'pending'}</span>
+        ${onlineBadge}
+        <span style="flex:1;"></span>
+        ${state.role === 'cs' && !csAccepted ? `
+          <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
+        ` : ''}
+        ${state.role === 'cs' && csAccepted && ticket.status !== 'escalated' ? `
+          <button class="btn btn-sm btn-danger" onclick="app.escalateSession(${ticket.id})">升级工单</button>
+        ` : ''}
+        ${state.role === 'rd' && !rdAccepted ? `
+          <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
+        ` : ''}
+        <button class="btn btn-outline btn-sm" onclick="app.askAIDirectly(${ticket.id})">询问 AI</button>
+        ${canSend ? renderEndServiceButton(ticket.id) : ''}
+      </div>
+      <div id="sessionChatMessages" class="ws-chat-area">
+        ${renderMessages(state.sessionMessages || [])}
+      </div>
+      <div class="ws-input-divider" id="wsInputDivider"></div>
+      <div class="ws-input-area" id="wsInputArea">
         ${canSend ? `
-          <div style="display:flex;gap:8px;align-items:flex-end;">
-            <textarea id="sessionReplyInput" rows="2" placeholder="输入回复..."
-              style="flex:1;"
-              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.sendReply(${ticket.id});}"></textarea>
-            <button class="btn btn-primary btn-sm" onclick="app.sendReply(${ticket.id})" style="align-self:flex-end;">发送</button>
+          <textarea id="sessionReplyInput" rows="3" placeholder="输入回复..."
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.sendReply(${ticket.id});}"></textarea>
+          <div class="ws-input-actions">
+            <button class="btn btn-primary btn-sm" onclick="app.sendReply(${ticket.id})">发送</button>
           </div>
         ` : `
-          <div style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text-secondary);font-size:var(--text-sm);">
             请先点击「${state.role === 'cs' ? '处理工单' : '接管工单'}」接入服务
+            ${state.role === 'cs' && !csAccepted ? `
+              <button class="btn btn-primary btn-sm" onclick="app.handleTicket(${ticket.id})">处理工单</button>
+            ` : ''}
+            ${state.role === 'rd' && !rdAccepted ? `
+              <button class="btn btn-primary btn-sm" onclick="app.acceptEscalation(${ticket.id})">接管工单</button>
+            ` : ''}
           </div>
         `}
       </div>
-      ${state.aiPanelVisible ? renderAIDialog() : ''}
-    </div>`;
+    </div>
+    ${state.aiPanelVisible ? renderAISheet() : ''}
+  `;
 }
 
-// ==================== AI Dialog ====================
+// ==================== AI Sheet (Overlay) ====================
 
-function renderAIDialog() {
+function renderAISheet() {
   const msgs = state.aiMessages || [];
 
   return `
-    <div class="ai-dialog">
-      <div class="ai-dialog-header">
+    <div class="ai-sheet-backdrop" onclick="app.closeAIPanel()"></div>
+    <div class="ai-sheet" id="aiSheet">
+      <div class="ai-sheet-resize-handle" id="aiSheetResizeHandle"></div>
+      <div class="ai-sheet-header">
         <h4>AI 智能助手</h4>
         <button class="btn-sm" onclick="app.closeAIPanel()">✕</button>
       </div>
-      <div class="ai-dialog-messages" id="aiDialogMessages">
+      <div class="ai-sheet-messages" id="aiDialogMessages">
         ${msgs.length === 0 && !state.aiLoading
-          ? '<div class="empty" style="padding:40px;">在输入框中输入问题，或悬停在客户消息上点击按钮</div>'
+          ? '<div class="empty" style="padding:40px;">在下方输入问题，或点击客户消息旁的「询问 AI」按钮</div>'
           : ''}
         ${msgs.map((m, i) => renderAIMessage(m, i)).join('')}
         ${state.aiLoading ? '<div class="msg-row agent"><div class="msg-bubble bubble-agent"><span class="typing-dots">AI 正在思考</span></div></div>' : ''}
       </div>
-      <div class="ai-dialog-input">
-        <textarea id="aiFollowUpInput" rows="1" placeholder="输入问题询问 AI..."
+      <div class="ai-sheet-input-divider" id="aiSheetInputDivider"></div>
+      <div class="ai-sheet-input" id="aiSheetInputArea">
+        <textarea id="aiFollowUpInput" rows="3" placeholder="输入问题询问 AI..."
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();app.aiFollowUp();}"></textarea>
-        <button class="btn btn-primary btn-sm" onclick="app.aiFollowUp()">发送</button>
+        <div class="ai-sheet-input-actions">
+          <button class="btn btn-primary btn-sm" onclick="app.aiFollowUp()">发送</button>
+        </div>
       </div>
     </div>`;
 }
@@ -166,7 +285,7 @@ function renderAIMessage(m, index) {
             <strong>引用来源:</strong>
             ${m.citations.map((c, i) => `
               <div class="ai-cite-item">${i + 1}. ${c.slug
-                ? `<a href="#" class="cite-link" onclick="event.preventDefault();app.switchTab('wiki-browser');app.loadWikiPage('${escHtml(c.slug)}')">${escHtml(c.doc_title || '?')}</a>`
+                ? `<a href="/wiki/${escHtml(c.slug)}" target="_blank" class="cite-link">${escHtml(c.doc_title || '?')}</a>`
                 : escHtml(c.doc_title || '?')}</div>
             `).join('')}
           </div>

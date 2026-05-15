@@ -70,7 +70,6 @@ export function renderAgentChatBubble(msg, index) {
     <div class="msg-row ${isCustomer ? 'msg-customer msg-hoverable' : 'msg-agent'}">
       <div class="msg-meta">
         <span class="msg-sender">${escHtml(senderLabel)}</span>
-        <span class="msg-time">${formatTime(msg.created_at)}</span>
       </div>
       <div class="msg-bubble ${isCustomer ? 'bubble-customer' : 'bubble-agent'}">
         ${isCustomer ? linkifyKeywords(msg.content) : escHtml(msg.content)}
@@ -89,7 +88,23 @@ export function renderMessages(messages) {
   if (!messages || !messages.length) {
     return '<div class="empty">暂无消息</div>';
   }
-  return messages.map((m, i) => renderAgentChatBubble(m, i)).join('');
+  const parts = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    // Insert time divider when gap from previous > 2 minutes
+    if (i > 0) {
+      const prev = parseMsgTime(messages[i-1].created_at);
+      const curr = parseMsgTime(m.created_at);
+      if (prev && curr && (curr - prev) > 120000) {
+        parts.push(`<div class="msg-time-divider">${formatTimeDivider(m.created_at)}</div>`);
+      }
+    } else {
+      // First message: always show time
+      parts.push(`<div class="msg-time-divider">${formatTimeDivider(m.created_at)}</div>`);
+    }
+    parts.push(renderAgentChatBubble(m, i));
+  }
+  return parts.join('');
 }
 
 export function renderActionBar(ticketId, role) {
@@ -113,15 +128,33 @@ export function renderActionBar(ticketId, role) {
 
 export function renderEndServiceButton(ticketId) {
   return `
-    <button class="btn btn-danger btn-sm" onclick="app.endService(${ticketId})" style="margin-left:8px;">
+    <button class="btn btn-sm btn-danger" onclick="app.endService(${ticketId})">
       结束服务
     </button>`;
 }
 
+function parseMsgTime(dateStr) {
+  if (!dateStr) return null;
+  // SQLite CURRENT_TIMESTAMP is UTC. Treat as UTC, convert to local.
+  const iso = dateStr.replace(' ', 'T') + 'Z';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
 function formatTime(dateStr) {
-  if (!dateStr) return '';
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  } catch (e) { return ''; }
+  const d = parseMsgTime(dateStr);
+  if (!d) return '';
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function formatTimeDivider(dateStr) {
+  const d = parseMsgTime(dateStr);
+  if (!d) return '';
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return formatTime(dateStr);
+  const month = d.getMonth() + 1;
+  const day = d.getDate();
+  return month + '月' + day + '日 ' + formatTime(dateStr);
 }

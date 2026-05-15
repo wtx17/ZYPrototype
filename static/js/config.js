@@ -1,7 +1,7 @@
 export const roleTabs = {
-  cs: ['sessions', 'wiki-browser'],
-  rd: ['escalations', 'wiki-browser'],
-  doc: ['wiki-browser', 'review-knowledge'],
+  cs: ['sessions'],
+  rd: ['escalations'],
+  doc: ['review-knowledge'],
   manager: ['dashboard', 'all-tickets'],
 };
 
@@ -31,7 +31,6 @@ export const tabLabels = {
   tickets: '工单管理 (P7)',
   escalations: '升级工单',
   'review-knowledge': '审核知识',
-  'wiki-browser': '浏览知识库',
   dashboard: '仪表盘 (P8)',
   'all-tickets': '全部工单',
 };
