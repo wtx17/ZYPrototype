@@ -361,15 +361,23 @@ function buildTOC(slug) {
   // IntersectionObserver for scroll highlighting
   if (window._wikiTocObserver) window._wikiTocObserver.disconnect();
   const observer = new IntersectionObserver((entries) => {
+    let topEntry = null;
+    let minTop = Infinity;
     for (const entry of entries) {
       if (entry.isIntersecting) {
-        sidebar.querySelectorAll('.wiki-toc-list a').forEach(a => a.classList.remove('active'));
-        const link = sidebar.querySelector(`a[href="#${entry.target.id}"]`);
-        if (link) link.classList.add('active');
-        break;
+        const top = entry.boundingClientRect.top;
+        if (top < minTop) {
+          minTop = top;
+          topEntry = entry;
+        }
       }
     }
-  }, { rootMargin: '-80px 0px -60% 0px' });
+    if (topEntry) {
+      sidebar.querySelectorAll('.wiki-toc-list a').forEach(a => a.classList.remove('active'));
+      const link = sidebar.querySelector(`a[href="#${topEntry.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  }, { rootMargin: '-80px 0px -10% 0px' });
   headings.forEach(h => observer.observe(h));
   window._wikiTocObserver = observer;
 }
