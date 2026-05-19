@@ -193,7 +193,7 @@ export async function loadWikiPage(slug) {
         </div>
         ${page.release_note ? `<div class="wiki-release-note">📋 ${escHtml(page.release_note)}</div>` : ''}
       </div>
-      ${isD2 ? '<div class="wiki-d2-disclaimer">此文档来自研发知识库，未经文档团队审核，请谨慎使用。</div>' : ''}
+      ${isD2 ? '<div class="wiki-d2-disclaimer">此文档来自研发知识库，请谨慎引用。</div>' : ''}
       ${st === 'draft' ? '<div class="wiki-draft-notice">此页面为草稿，仅文档团队可见。编辑完成后请提交审核。</div>' : ''}
       ${st === 'pending_review' ? '<div class="wiki-draft-notice">此页面正在审核中，审核通过后将对全员可见。</div>' : ''}
       <div class="wiki-markdown wiki-content">${renderMarkdown(page.content)}</div>
