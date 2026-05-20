@@ -92,7 +92,13 @@ from database import (
 )
 from agent import query_ai
 from desensitizer import desensitize
-from knowledge_store import add_to_ai_knowledge as chroma_add_ai, add_to_rd_knowledge as chroma_add_rd, get_ai_vector_store
+from knowledge_store import (
+    add_to_ai_knowledge as chroma_add_ai,
+    add_to_rd_knowledge as chroma_add_rd,
+    get_ai_vector_store,
+    remove_from_ai_knowledge,
+    remove_from_rd_knowledge,
+)
 from auth import create_session, destroy_session, get_current_session, require_role, get_session
 from ws_manager import clients as ws_clients
 from wiki import build_wiki_tree
@@ -103,6 +109,13 @@ WS_MAX_MSG_BYTES = 64 * 1024  # 64 KB
 
 
 _sync_logger = logging.getLogger("chromadb.sync")
+
+
+def _remove_from_chroma_safe(remove_fn, wiki_page_id: int):
+    try:
+        remove_fn(wiki_page_id)
+    except Exception as e:
+        _sync_logger.warning("ChromaDB delete failed for page %d: %s", wiki_page_id, e)
 
 def _sync_to_chroma(action: str, **kwargs) -> str:
     """Best-effort ChromaDB sync. Returns empty string on success, error suffix on failure."""
@@ -615,7 +628,7 @@ async def create_wiki_page_route(data: dict, request: Request):
 @app.put("/api/wiki/{page_id}")
 async def update_wiki_page_route(page_id: int, data: dict, request: Request):
     """Update a wiki page (doc, rd). Pages under review are read-only."""
-    await require_role(request, ["doc", "rd"])
+    session = await require_role(request, ["doc", "rd"])
 
     page = get_wiki_page(page_id)
     if not page:
@@ -642,19 +655,55 @@ async def update_wiki_page_route(page_id: int, data: dict, request: Request):
             update_data[field] = val
     if not update_data:
         raise HTTPException(status_code=400, detail="无更新字段")
-    ok = update_wiki_page(page_id, update_data)
+    ok = update_wiki_page(page_id, update_data, editor=session["username"])
     if not ok:
         raise HTTPException(status_code=404, detail="页面不存在")
     return {"success": True}
+
+
+@app.get("/api/wiki/{page_id}/versions")
+async def get_wiki_page_versions(page_id: int, request: Request):
+    """Get version history for a wiki page."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    page = get_wiki_page(page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    if page.get("knowledge_type") == "d2" and session["role"] not in ("rd", "doc"):
+        raise HTTPException(status_code=403, detail="无权访问研发知识库")
+    from database import list_wiki_page_versions
+    versions = list_wiki_page_versions(page_id)
+    return {"success": True, "data": versions, "current_title": page["title"]}
+
+
+@app.get("/api/wiki/version/{version_id}")
+async def get_wiki_page_version_content(version_id: int, request: Request):
+    """Get a specific version's full content."""
+    session = await require_role(request, ["cs", "rd", "doc", "manager"])
+    from database import get_wiki_page_version
+    ver = get_wiki_page_version(version_id)
+    if not ver:
+        raise HTTPException(status_code=404, detail="版本不存在")
+    page = get_wiki_page(ver["page_id"])
+    if page and page.get("knowledge_type") == "d2" and session["role"] not in ("rd", "doc"):
+        raise HTTPException(status_code=403, detail="无权访问研发知识库")
+    return {"success": True, "data": ver}
 
 
 @app.delete("/api/wiki/{page_id}")
 async def delete_wiki_page_route(page_id: int, request: Request):
     """Delete a wiki page (doc, rd). Children become root pages."""
     await require_role(request, ["doc", "rd"])
+    page = get_wiki_page(page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    kt = page.get("knowledge_type", "d1")
     ok = delete_wiki_page(page_id)
     if not ok:
         raise HTTPException(status_code=404, detail="页面不存在")
+    if kt == "d2":
+        _remove_from_chroma_safe(remove_from_rd_knowledge, page_id)
+    elif page.get("status") == "approved":
+        _remove_from_chroma_safe(remove_from_ai_knowledge, page_id)
     return {"success": True}
 
 

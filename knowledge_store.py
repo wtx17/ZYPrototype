@@ -189,6 +189,22 @@ def check_rd_match(query: str, top_k: int = 3) -> bool:
     return len(results) > 0
 
 
+# --- Deletion ---
+
+def remove_from_ai_knowledge(wiki_page_id: int):
+    store = get_ai_vector_store()
+    results = store.get(where={"wiki_page_id": wiki_page_id})
+    if results and results.get("ids"):
+        store.delete(ids=results["ids"])
+
+
+def remove_from_rd_knowledge(wiki_page_id: int):
+    store = get_rd_vector_store()
+    results = store.get(where={"wiki_page_id": wiki_page_id})
+    if results and results.get("ids"):
+        store.delete(ids=results["ids"])
+
+
 # --- Reset ---
 
 def reset_vector_stores():

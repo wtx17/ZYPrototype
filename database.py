@@ -131,6 +131,17 @@ def _init_db():
         );
 
         CREATE INDEX IF NOT EXISTS idx_handling_records_ticket ON handling_records(ticket_id);
+
+        CREATE TABLE IF NOT EXISTS wiki_page_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_id INTEGER NOT NULL REFERENCES wiki_pages(id),
+            title TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            editor TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_wiki_page_versions_page ON wiki_page_versions(page_id);
     """)
     _conn.commit()
 
@@ -388,8 +399,15 @@ def insert_wiki_page(data: dict) -> int:
     return page_id
 
 
-def update_wiki_page(page_id: int, data: dict) -> bool:
+def update_wiki_page(page_id: int, data: dict, editor: str = "") -> bool:
     c = get_conn()
+
+    # Save version before changing title or content
+    if editor and ("title" in data or "content" in data):
+        row = c.execute("SELECT title, content FROM wiki_pages WHERE id = ?", (page_id,)).fetchone()
+        if row:
+            save_wiki_page_version(page_id, row["title"], row["content"], editor)
+
     fields = []
     values = []
     updatable = ("title", "content", "parent_id", "status", "knowledge_type",
@@ -411,7 +429,7 @@ def update_wiki_page(page_id: int, data: dict) -> bool:
 
     if not fields:
         return False
-    fields.append("updated_at = datetime('now')")
+    fields.append("updated_at = datetime('now', 'localtime')")
     values.append(page_id)
     cur = c.execute(f"UPDATE wiki_pages SET {', '.join(fields)} WHERE id = ?", values)
     _conn.commit()
@@ -644,7 +662,7 @@ def list_tickets(created_by: Optional[str] = None, escalated_only: bool = False)
 def update_ticket_status(ticket_id: int, status: str):
     c = get_conn()
     c.execute(
-        "UPDATE tickets SET status = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
         (status, ticket_id),
     )
     _conn.commit()
@@ -678,7 +696,7 @@ def escalate_ticket(ticket_id: int, reason: str = "") -> bool:
     c = get_conn()
     cur = c.execute(
         "UPDATE tickets SET status = 'escalated', "
-        "updated_at = datetime('now') WHERE id = ?",
+        "updated_at = datetime('now', 'localtime') WHERE id = ?",
         (ticket_id,),
     )
     c.execute(
@@ -693,11 +711,11 @@ def resolve_ticket_escalation(ticket_id: int, solution: str, version: Optional[s
     c = get_conn()
     cur = c.execute(
         "UPDATE tickets SET status = 'closed', service_ended = 1, "
-        "updated_at = datetime('now') WHERE id = ?",
+        "updated_at = datetime('now', 'localtime') WHERE id = ?",
         (ticket_id,),
     )
     c.execute(
-        "UPDATE escalations SET solution = ?, version = ?, resolved_at = datetime('now') "
+        "UPDATE escalations SET solution = ?, version = ?, resolved_at = datetime('now', 'localtime') "
         "WHERE ticket_id = ? AND resolved_at IS NULL",
         (solution, version, ticket_id),
     )
@@ -770,7 +788,7 @@ def get_satisfaction_feedback(ticket_id: int) -> Optional[dict]:
 def assign_ticket_cs(ticket_id: int, cs_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_cs_id = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET assigned_cs_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
         (cs_user_id or None, ticket_id),
     )
     _conn.commit()
@@ -780,7 +798,7 @@ def assign_ticket_cs(ticket_id: int, cs_user_id: int = 0) -> bool:
 def clear_ticket_cs(ticket_id: int) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_cs_id = NULL, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET assigned_cs_id = NULL, updated_at = datetime('now', 'localtime') WHERE id = ?",
         (ticket_id,),
     )
     _conn.commit()
@@ -790,7 +808,7 @@ def clear_ticket_cs(ticket_id: int) -> bool:
 def assign_ticket_rd(ticket_id: int, rd_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_rd_id = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET assigned_rd_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
         (rd_user_id or None, ticket_id),
     )
     _conn.commit()
@@ -800,7 +818,7 @@ def assign_ticket_rd(ticket_id: int, rd_user_id: int = 0) -> bool:
 def update_ticket_customer(ticket_id: int, customer_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET customer_user_id = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET customer_user_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
         (customer_user_id or None, ticket_id),
     )
     _conn.commit()
@@ -810,7 +828,7 @@ def update_ticket_customer(ticket_id: int, customer_user_id: int = 0) -> bool:
 def end_ticket_service(ticket_id: int) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET service_ended = 1, status = 'closed', updated_at = datetime('now') WHERE id = ?",
+        "UPDATE tickets SET service_ended = 1, status = 'closed', updated_at = datetime('now', 'localtime') WHERE id = ?",
         (ticket_id,),
     )
     _conn.commit()
@@ -920,3 +938,33 @@ def get_metrics() -> dict:
         "rd_count": user_counts.get("rd", 0),
         "doc_count": user_counts.get("doc", 0),
     }
+
+
+# ==================== Wiki Page Versions ====================
+
+def save_wiki_page_version(page_id: int, title: str, content: str, editor: str) -> int:
+    c = get_conn()
+    cur = c.execute(
+        "INSERT INTO wiki_page_versions (page_id, title, content, editor) VALUES (?, ?, ?, ?)",
+        (page_id, title, content, editor),
+    )
+    _conn.commit()
+    return cur.lastrowid
+
+
+def list_wiki_page_versions(page_id: int) -> list[dict]:
+    c = get_conn()
+    rows = c.execute(
+        "SELECT id, page_id, title, editor, created_at FROM wiki_page_versions "
+        "WHERE page_id = ? ORDER BY created_at DESC",
+        (page_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_wiki_page_version(version_id: int) -> Optional[dict]:
+    c = get_conn()
+    row = c.execute(
+        "SELECT * FROM wiki_page_versions WHERE id = ?", (version_id,)
+    ).fetchone()
+    return dict(row) if row else None

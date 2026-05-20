@@ -1498,7 +1498,7 @@ tr:last-child td {
   font-size: 14px;
   width: 100%;
   padding: 14px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.7);
   outline: none;
@@ -1516,7 +1516,7 @@ tr:last-child td {
 .wiki-editor-card select {
   width: 100%;
   padding: 10px 14px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.7);
   font-size: 14px;
@@ -1571,6 +1571,33 @@ tr:last-child td {
   color: var(--rd-color);
 }
 
+.wiki-d1-folder {
+  font-weight: 600;
+  color: #333;
+}
+
+.wiki-tree-section {
+  margin-bottom: 4px;
+}
+
+.wiki-tree-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #222;
+  letter-spacing: 0.5px;
+  padding: 8px 12px 4px;
+}
+
+.wiki-tree-section-title.sub {
+  font-size: 11px;
+  color: #555;
+  padding: 6px 12px 3px;
+}
+
+.wiki-tree-section-children {
+  margin-left: 0;
+}
+
 .wiki-new-page-link {
   font-size: 13px;
   color: var(--primary);
@@ -1610,12 +1637,24 @@ tr:last-child td {
 }
 
 .wiki-status-tag {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 10px;
+  vertical-align: middle;
+  margin-left: 10px;
+  white-space: nowrap;
 }
-
-.wiki-status-tag.draft { color: #86868b; }
-.wiki-status-tag.pending { color: #b39000; }
+.wiki-status-tag.draft {
+  background: rgba(134, 134, 139, 0.12);
+  color: #86868b;
+  border: 1px solid rgba(134, 134, 139, 0.25);
+}
+.wiki-status-tag.pending {
+  background: rgba(179, 144, 0, 0.12);
+  color: #b39000;
+  border: 1px solid rgba(179, 144, 0, 0.3);
+}
 
 .wiki-draft-notice {
   font-size: 13px;
@@ -1633,6 +1672,13 @@ tr:last-child td {
 .wiki-editor-grid select {
   width: 100%;
   box-sizing: border-box;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.7);
+}
 }
 
 .wiki-release-note {
@@ -1819,6 +1865,49 @@ tr:last-child td {
 
 .wiki-toc-h3 {
   padding-left: 16px;
+}
+
+/* Version history in sidebar */
+.wiki-version-current-link {
+  color: var(--primary) !important;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.wiki-version-num {
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.wiki-version-editor {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.wiki-version-time {
+  font-size: 11px;
+  color: var(--muted);
+  float: right;
+}
+
+.wiki-version-count {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 8px;
+  margin-bottom: 8px;
+}
+
+.wiki-version-notice {
+  font-size: 13px;
+  color: #b36800;
+  background: rgba(255, 149, 0, 0.08);
+  padding: 8px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.wiki-version-notice a {
+  font-weight: 500;
 }
 
 /* --- Breadcrumbs --- */

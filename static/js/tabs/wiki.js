@@ -81,7 +81,8 @@ function renderTreeNode(node, depth) {
   const isActive = node.slug === _wikiCurrentSlug;
   const expanded = _wikiExpandedNodes[node.id] || false;
   const isD2 = node.source === 'd2';
-  const isD2Folder = node.source === 'd2-folder';
+  const isFolder = node.source?.endsWith('-folder');
+  const isRoot = node.source?.endsWith('-root');
   const st = node.status || '';
   const isDraft = st === 'draft';
   const isPending = st === 'pending_review';
@@ -89,13 +90,28 @@ function renderTreeNode(node, depth) {
   const statusDot = isDraft ? '<span class="wiki-status-dot draft" title="草稿"></span>'
     : isPending ? '<span class="wiki-status-dot pending" title="审核中"></span>' : '';
 
+  // Root sections (客服知识库, 研发知识库) and sub-sections (通用文档, 技术方案, ...)
+  // are static headers — no toggle, no click, children always visible
+  if (isRoot || isFolder) {
+    const titleCls = isRoot ? 'wiki-tree-section-title' : 'wiki-tree-section-title sub';
+    return `
+      <div class="wiki-tree-section">
+        <div class="${titleCls}">${escHtml(node.title)}</div>
+        ${hasChildren ? `
+          <div class="wiki-tree-section-children">
+            ${node.children.map(c => renderTreeNode(c, 0)).join('')}
+          </div>
+        ` : ''}
+      </div>`;
+  }
+
   return `
-    <div class="wiki-tree-node" style="padding-left:${isD2Folder ? 0 : depth * 20}px;">
+    <div class="wiki-tree-node" style="padding-left:${depth * 20}px;">
       <div class="wiki-tree-row">
         <span class="wiki-tree-toggle ${hasChildren ? '' : 'invisible'}${expanded ? ' expanded' : ''}"
           data-wiki-toggle="${node.id}"
           onclick="event.stopPropagation();app.toggleTreeNode(${node.id})">▸</span>
-        <span class="wiki-tree-label ${isActive ? 'active' : ''} ${isD2Folder ? 'wiki-d2-folder' : ''} ${isDraft || isPending ? 'wiki-tree-dim' : ''}"
+        <span class="wiki-tree-label ${isActive ? 'active' : ''} ${isDraft || isPending ? 'wiki-tree-dim' : ''}"
           onclick="${hasChildren ? `app.toggleTreeNode(${node.id})` : (node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : '')}">
           ${escHtml(node.title)}
           ${statusDot}
@@ -125,6 +141,7 @@ export async function loadWikiPage(slug) {
   if (!slug) return;
   _wikiCurrentSlug = slug;
   _wikiCurrentPageStatus = '';
+  _wikiCurrentVersionId = null;
 
   // Update tree highlight
   const tree = document.getElementById('wikiTree');
@@ -160,19 +177,22 @@ export async function loadWikiPage(slug) {
         ? '<span class="wiki-status-tag pending">审核中</span>'
         : '';
 
+    const versionHistoryLink = `<a href="#" class="wiki-action-link" onclick="event.preventDefault();app.showWikiVersions(${page.id})">版本历史</a>`;
+
     const actionButtons = canEdit
       ? (st === 'draft'
           ? `<a href="#" class="wiki-action-link" onclick="event.preventDefault();app.submitPageForReview(${page.id})">提交审核</a>
              <a href="#" class="wiki-action-link" onclick="event.preventDefault();app.showWikiEditor(${page.id})">编辑</a>
+             ${versionHistoryLink}
              <a href="#" class="wiki-action-link wiki-action-danger" onclick="event.preventDefault();app.deleteWikiPage(${page.id})">删除</a>`
           : `<a href="#" class="wiki-action-link" onclick="event.preventDefault();app.showWikiEditor(${page.id})">编辑</a>
+             ${versionHistoryLink}
              <a href="#" class="wiki-action-link wiki-action-danger" onclick="event.preventDefault();app.deleteWikiPage(${page.id})">删除</a>`)
       : (isLocked && (role === 'doc' || role === 'rd')
-          ? '<span style="font-size:12px;color:var(--muted);">审核中，无法编辑</span>' : '');
+          ? `<span style="font-size:12px;color:var(--muted);">审核中，无法编辑</span>${versionHistoryLink}` : versionHistoryLink);
 
     const metaTags = [
       isD2 ? '<span class="wiki-d2-label">研发知识库 (D2)</span>' : '',
-      statusBadge,
       page.version ? `<span>版本: ${escHtml(page.version)}</span>` : '',
       page.entry_type ? `<span>类型: ${escHtml(page.entry_type === 'solution' ? '技术方案' : page.entry_type === 'release_note' ? '发布说明' : page.entry_type)}</span>` : '',
       page.keywords ? `<span>关键词: ${escHtml(page.keywords)}</span>` : '',
@@ -184,7 +204,7 @@ export async function loadWikiPage(slug) {
     main.innerHTML = `
       ${breadcrumbs}
       <div class="wiki-page-header">
-        <h2>${escHtml(page.title)}</h2>
+        <h2>${escHtml(page.title)}${statusBadge}</h2>
         <div class="wiki-meta">
           ${metaTags}
           <span>更新: ${formatDate(page.updated_at)}</span>
@@ -295,7 +315,9 @@ function findAncestors(nodes, targetSlug, chain) {
     }
     if (node.children && node.children.length > 0) {
       if (findAncestors(node.children, targetSlug, chain)) {
-        chain.push({ title: node.title, slug: node.slug });
+        if (node.slug) {
+          chain.push({ title: node.title, slug: node.slug });
+        }
         return true;
       }
     }
@@ -336,7 +358,7 @@ function getPrevNext(slug, page) {
 
 function flattenForNav(nodes, result) {
   for (const node of nodes) {
-    if (node.slug && !node.source?.startsWith('d2-folder') && node.title) {
+    if (node.slug && !node.source?.endsWith('-folder') && node.title) {
       result.push(node);
     }
     if (node.children && node.children.length > 0) {
@@ -805,6 +827,91 @@ export async function deleteWikiPage(pageId) {
     }
   } catch (e) {
     toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+export async function showWikiVersions(pageId) {
+  const sidebar = document.getElementById('wikiTOCSidebar');
+  if (!sidebar) return;
+
+  try {
+    const data = await api(`/api/wiki/${pageId}/versions`);
+    const versions = data.data || [];
+
+    // Default to showing latest version
+    if (versions.length > 0 && !_wikiCurrentVersionId) {
+      _wikiCurrentVersionId = versions[0].id;
+    }
+
+    const activeId = _wikiCurrentVersionId;
+
+    sidebar.innerHTML = `
+      <div class="wiki-toc-title">版本历史</div>
+      <ul class="wiki-toc-list">
+        <li><a href="#" class="wiki-version-current-link"
+          onclick="event.preventDefault();app.loadWikiPage('${_wikiCurrentSlug}')">
+          ← 返回当前版本
+        </a></li>
+        ${versions.length === 0
+          ? '<li><div class="empty" style="padding:10px;font-size:12px;">暂无历史版本</div></li>'
+          : versions.map((v, i) => `
+            <li><a href="#"
+              class="${v.id === activeId ? 'active' : ''}"
+              onclick="event.preventDefault();app.loadWikiVersionInMain(${v.id})">
+              <span class="wiki-version-num">#${versions.length - i}</span>
+              <span class="wiki-version-editor">${escHtml(v.editor || '-')}</span>
+              <span class="wiki-version-time">${formatDate(v.created_at)}</span>
+            </a></li>
+          `).join('')
+        }
+      </ul>
+    `;
+
+    // Auto-load the latest version into center
+    if (versions.length > 0) {
+      await loadWikiVersionInMain(versions[0].id);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+let _wikiCurrentVersionId = null;
+
+export async function loadWikiVersionInMain(versionId) {
+  const main = document.getElementById('wikiMain');
+  if (!main) return;
+
+  _wikiCurrentVersionId = versionId;
+
+  try {
+    const data = await api(`/api/wiki/version/${versionId}`);
+    const ver = data.data;
+    if (!ver) return;
+
+    main.innerHTML = `
+      <div class="wiki-version-notice">
+        正在查看历史版本，编辑于 ${formatDate(ver.created_at)}  ·
+        <a href="#" onclick="event.preventDefault();app.loadWikiPage('${_wikiCurrentSlug}')">返回当前版本</a>
+      </div>
+      <div class="wiki-page-header">
+        <h2>${escHtml(ver.title)}</h2>
+        <div class="wiki-meta">
+          <span>编辑者: ${escHtml(ver.editor || '-')}</span>
+        </div>
+      </div>
+      <div class="wiki-markdown wiki-content">${renderMarkdown(ver.content)}</div>
+    `;
+
+    // Update sidebar active link
+    const sidebar = document.getElementById('wikiTOCSidebar');
+    if (sidebar) {
+      sidebar.querySelectorAll('.wiki-toc-list a').forEach(a => a.classList.remove('active'));
+      const activeLink = sidebar.querySelector(`.wiki-toc-list a[onclick*="${versionId}"]`);
+      if (activeLink) activeLink.classList.add('active');
+    }
+  } catch (e) {
+    // ignore
   }
 }
 

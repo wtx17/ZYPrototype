@@ -277,7 +277,7 @@ class WSClients:
         end_ticket_service(ticket_id)
         # Resolve any open escalation
         get_conn().execute(
-            "UPDATE escalations SET resolved_at = datetime('now') "
+            "UPDATE escalations SET resolved_at = datetime('now', 'localtime') "
             "WHERE ticket_id = ? AND resolved_at IS NULL",
             (ticket_id,)
         )
