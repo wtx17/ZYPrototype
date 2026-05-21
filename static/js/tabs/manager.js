@@ -7,6 +7,7 @@ import { escHtml, formatDate, formatDuration } from '../utils.js';
 let _metricsTimer = null;
 let _dashboardView = 'overview';
 let _lastMetrics = null;
+let _dashboardTransition = '';
 
 const dashboardViews = [
   { key: 'overview', label: '总览' },
@@ -14,6 +15,29 @@ const dashboardViews = [
   { key: 'ai', label: 'AI 质量' },
   { key: 'knowledge', label: '知识库情况' },
 ];
+
+const dashboardViewConfigs = {
+  overview: {
+    cards: renderOverviewCards,
+    chart: renderOverviewChart,
+    insight: renderOverviewInsight,
+  },
+  satisfaction: {
+    cards: renderSatisfactionCards,
+    chart: renderSatisfactionChart,
+    insight: renderSatisfactionInsight,
+  },
+  ai: {
+    cards: renderAICards,
+    chart: renderAIChart,
+    insight: renderAIInsight,
+  },
+  knowledge: {
+    cards: renderKnowledgeCards,
+    chart: renderKnowledgeChart,
+    insight: renderKnowledgeInsight,
+  },
+};
 
 export function renderDashboard() {
   return `
@@ -49,6 +73,10 @@ export async function loadMetrics() {
 
 export function setDashboardView(view) {
   if (!dashboardViews.some(v => v.key === view)) return;
+  if (view === _dashboardView) return;
+  const oldIndex = dashboardViews.findIndex(v => v.key === _dashboardView);
+  const newIndex = dashboardViews.findIndex(v => v.key === view);
+  _dashboardTransition = newIndex > oldIndex ? 'slide-from-right' : 'slide-from-left';
   _dashboardView = view;
   if (_lastMetrics) {
     const display = document.getElementById('metricsDisplay');
@@ -57,11 +85,9 @@ export function setDashboardView(view) {
 }
 
 function renderMetricsDashboard(m) {
-  const todayTickets = num(m.today_tickets);
-  const escalationRate = fmtPct(m.escalation_rate);
-  const docUpdatesToday = num(m.doc_updates_today);
-  const aiQueriesToday = num(m.ai_queries_today);
-  const closedTickets = Math.max(0, num(m.total_tickets) - num(m.pending_tickets) - num(m.escalated_count));
+  const config = dashboardViewConfigs[_dashboardView] || dashboardViewConfigs.overview;
+  const transition = _dashboardTransition;
+  _dashboardTransition = '';
 
   return `
     <div class="dashboard-toolbar">
@@ -74,31 +100,20 @@ function renderMetricsDashboard(m) {
       <div class="dashboard-updated">自动刷新 · 30s</div>
     </div>
 
-    <div class="dashboard-summary-grid">
-      ${summaryCard('今日工单数', todayTickets, `本周累计 ${num(m.week_tickets)} 单`)}
-      ${summaryCard('升级率', escalationRate, `${num(m.escalated_count)} 单升级中，${num(m.escalated_waiting)} 单待接管`)}
-      ${summaryCard('今日文档更新', docUpdatesToday, `${num(m.d1_doc_count) + num(m.d2_doc_count)} 篇知识库文档`)}
-      ${summaryCard('AI 提问次数', aiQueriesToday, `平均置信度 ${fmtPct(m.avg_confidence)}`)}
-    </div>
+    <div class="dashboard-view-shell ${transition}" data-dashboard-view="${_dashboardView}">
+      <div class="dashboard-summary-grid">
+        ${config.cards(m)}
+      </div>
 
-    <div class="dashboard-main-grid">
-      <section class="dashboard-chart-card">
-        <div class="chart-header">
-          <div>
-            <h3>往日工单趋势</h3>
-            <p>柱状图为每日工单数量，折线为升级数量。</p>
-          </div>
-          <div class="chart-legend">
-            <span><i class="legend-bar"></i>工单数</span>
-            <span><i class="legend-line"></i>升级数</span>
-          </div>
-        </div>
-        ${renderOperationsChart(m.daily_operations)}
-      </section>
+      <div class="dashboard-main-grid">
+        <section class="dashboard-chart-card">
+          ${config.chart(m)}
+        </section>
 
-      <section class="dashboard-insight-card">
-        ${renderInsightPanel(m, closedTickets)}
-      </section>
+        <section class="dashboard-insight-card">
+          ${config.insight(m)}
+        </section>
+      </div>
     </div>
   `;
 }
@@ -112,56 +127,32 @@ function summaryCard(label, value, note) {
     </div>`;
 }
 
-function renderInsightPanel(m, closedTickets) {
-  if (_dashboardView === 'satisfaction') {
-    const yes = num(m.satisfaction_yes);
-    const no = num(m.satisfaction_no);
-    const total = yes + no;
-    const rate = total ? yes / total : 0;
-    return `
-      <div class="insight-title">满意度</div>
-      <div class="insight-subtitle">客户服务结束后的反馈汇总</div>
-      ${bigStat('好评率', total ? fmtPct(rate) : '-')}
-      ${progressBar(rate, 'var(--success)')}
-      <div class="panel-list">
-        ${panelRow('好评', yes)}
-        ${panelRow('差评', no)}
-        ${panelRow('反馈总数', total)}
-      </div>
-    `;
-  }
+function renderOverviewCards(m) {
+  return [
+    summaryCard('今日工单数', num(m.today_tickets), `本周累计 ${num(m.week_tickets)} 单`),
+    summaryCard('升级率', fmtPct(m.escalation_rate), `${num(m.escalated_total)} 单曾升级，${num(m.escalated_count)} 单升级中`),
+    summaryCard('今日文档更新', num(m.doc_updates_today), `${num(m.d1_doc_count) + num(m.d2_doc_count)} 篇知识库文档`),
+    summaryCard('AI 提问次数', num(m.ai_queries_today), `平均置信度 ${fmtPct(m.avg_confidence)}`),
+  ].join('');
+}
 
-  if (_dashboardView === 'ai') {
-    return `
-      <div class="insight-title">AI 质量</div>
-      <div class="insight-subtitle">按回答置信度分层观察 AI 辅助效果</div>
-      ${bigStat('平均置信度', fmtPct(m.avg_confidence))}
-      <div class="panel-list">
-        ${panelRow('绿色率', fmtPct(m.green_rate), 'good')}
-        ${panelRow('黄色率', fmtPct(m.yellow_rate), 'warn')}
-        ${panelRow('红色率', fmtPct(m.red_rate), num(m.red_rate) > 0.2 ? 'bad' : '')}
-        ${panelRow('今日提问', num(m.ai_queries_today))}
+function renderOverviewChart(m) {
+  return `
+    <div class="chart-header">
+      <div>
+        <h3>往日工单趋势</h3>
+        <p>柱状图为每日工单数量，折线为升级数量。</p>
       </div>
-    `;
-  }
-
-  if (_dashboardView === 'knowledge') {
-    const approved = num(m.d1_doc_count);
-    const rd = num(m.d2_doc_count);
-    const pending = num(m.pending_review_count);
-    return `
-      <div class="insight-title">知识库情况</div>
-      <div class="insight-subtitle">D1 客服知识、D2 研发知识与审核队列</div>
-      ${bigStat('今日更新次数', num(m.doc_updates_today))}
-      <div class="panel-list">
-        ${panelRow('D1 已审核', approved)}
-        ${panelRow('D2 研发知识', rd)}
-        ${panelRow('待审核', pending, pending ? 'warn' : '')}
-        ${panelRow('文档人员', num(m.doc_count))}
+      <div class="chart-legend">
+        <span><i class="legend-bar"></i>工单数</span>
+        <span><i class="legend-line"></i>升级数</span>
       </div>
-    `;
-  }
+    </div>
+    ${renderOperationsChart(m.daily_operations)}`;
+}
 
+function renderOverviewInsight(m) {
+  const closedTickets = Math.max(0, num(m.total_tickets) - num(m.pending_tickets) - num(m.escalated_count));
   return `
     <div class="insight-title">运营总览</div>
     <div class="insight-subtitle">今日数据与当前工单池状态</div>
@@ -173,6 +164,137 @@ function renderInsightPanel(m, closedTickets) {
       ${panelRow('总工单数', num(m.total_tickets))}
     </div>
   `;
+}
+
+function renderSatisfactionCards(m) {
+  const sat = getSatisfactionStats(m);
+  return [
+    summaryCard('反馈总数', sat.total, `${sat.yes} 个好评，${sat.no} 个差评`),
+    summaryCard('好评率', sat.total ? fmtPct(sat.rate) : '-', '服务结束后的客户反馈'),
+    summaryCard('好评数', sat.yes, sat.total ? `占比 ${fmtPct(sat.yes / sat.total)}` : '暂无反馈'),
+    summaryCard('差评数', sat.no, sat.total ? `占比 ${fmtPct(sat.no / sat.total)}` : '暂无反馈'),
+  ].join('');
+}
+
+function renderSatisfactionChart(m) {
+  const sat = getSatisfactionStats(m);
+  return `
+    <div class="chart-header">
+      <div>
+        <h3>满意度分布</h3>
+        <p>按客户服务结束后的反馈统计好评与差评。</p>
+      </div>
+      <div class="chart-legend">
+        <span><i class="legend-good"></i>好评</span>
+        <span><i class="legend-bad"></i>差评</span>
+      </div>
+    </div>
+    ${renderShareBars([
+      { label: '好评', value: sat.yes, total: sat.total, suffix: ' 个', tone: 'good' },
+      { label: '差评', value: sat.no, total: sat.total, suffix: ' 个', tone: 'bad' },
+    ], '暂无满意度反馈')}`;
+}
+
+function renderSatisfactionInsight(m) {
+  const sat = getSatisfactionStats(m);
+  return `
+    <div class="insight-title">满意度</div>
+    <div class="insight-subtitle">用反馈总量和好评率判断服务体验是否稳定。</div>
+    ${bigStat('好评率', sat.total ? fmtPct(sat.rate) : '-')}
+    ${progressBar(sat.rate, 'var(--success)')}
+    <div class="panel-list">
+      ${panelRow('反馈总数', sat.total)}
+      ${panelRow('好评', sat.yes, 'good')}
+      ${panelRow('差评', sat.no, sat.no ? 'bad' : '')}
+      ${panelRow('建议', sat.total ? (sat.rate >= 0.8 ? '体验稳定' : '关注差评原因') : '先积累反馈')}
+    </div>`;
+}
+
+function renderAICards(m) {
+  return [
+    summaryCard('今日 AI 提问', num(m.ai_queries_today), '客服工作台 AI 调用次数'),
+    summaryCard('平均置信度', fmtPct(m.avg_confidence), qualityNote(num(m.avg_confidence))),
+    summaryCard('绿色率', fmtPct(m.green_rate), '高置信度回答占比'),
+    summaryCard('红色率', fmtPct(m.red_rate), num(m.red_rate) > 0.2 ? '需要关注低置信回答' : '低置信占比较低'),
+  ].join('');
+}
+
+function renderAIChart(m) {
+  return `
+    <div class="chart-header">
+      <div>
+        <h3>AI 置信度分布</h3>
+        <p>绿色、黄色、红色分别代表高、中、低置信度回答占比。</p>
+      </div>
+      <div class="chart-legend">
+        <span><i class="legend-good"></i>绿色</span>
+        <span><i class="legend-warn"></i>黄色</span>
+        <span><i class="legend-bad"></i>红色</span>
+      </div>
+    </div>
+    ${renderShareBars([
+      { label: '绿色回答', value: Math.round(num(m.green_rate) * 100), total: 100, suffix: '%', tone: 'good' },
+      { label: '黄色回答', value: Math.round(num(m.yellow_rate) * 100), total: 100, suffix: '%', tone: 'warn' },
+      { label: '红色回答', value: Math.round(num(m.red_rate) * 100), total: 100, suffix: '%', tone: 'bad' },
+    ], '暂无 AI 质量数据')}`;
+}
+
+function renderAIInsight(m) {
+  return `
+    <div class="insight-title">AI 质量</div>
+    <div class="insight-subtitle">观察 AI 辅助回答的置信度结构，及时发现低质量回答。</div>
+    ${bigStat('平均置信度', fmtPct(m.avg_confidence))}
+    ${progressBar(num(m.avg_confidence), confidenceColor(num(m.avg_confidence)))}
+    <div class="panel-list">
+      ${panelRow('今日提问', num(m.ai_queries_today))}
+      ${panelRow('绿色率', fmtPct(m.green_rate), 'good')}
+      ${panelRow('黄色率', fmtPct(m.yellow_rate), 'warn')}
+      ${panelRow('红色率', fmtPct(m.red_rate), num(m.red_rate) > 0.2 ? 'bad' : '')}
+    </div>`;
+}
+
+function renderKnowledgeCards(m) {
+  return [
+    summaryCard('今日更新', num(m.doc_updates_today), '文档版本更新次数'),
+    summaryCard('D1 已审核', num(m.d1_doc_count), '客服可用知识'),
+    summaryCard('D2 研发知识', num(m.d2_doc_count), '研发沉淀知识'),
+    summaryCard('待审核', num(m.pending_review_count), num(m.pending_review_count) ? '需要文档团队处理' : '当前无积压'),
+  ].join('');
+}
+
+function renderKnowledgeChart(m) {
+  const total = num(m.d1_doc_count) + num(m.d2_doc_count) + num(m.pending_review_count);
+  return `
+    <div class="chart-header">
+      <div>
+        <h3>知识库状态分布</h3>
+        <p>展示已审核 D1、D2 研发知识与待审核内容的规模。</p>
+      </div>
+      <div class="chart-legend">
+        <span><i class="legend-info"></i>D1</span>
+        <span><i class="legend-warn"></i>D2</span>
+        <span><i class="legend-bad"></i>待审核</span>
+      </div>
+    </div>
+    ${renderShareBars([
+      { label: 'D1 已审核', value: num(m.d1_doc_count), total, suffix: ' 篇', tone: 'info' },
+      { label: 'D2 研发知识', value: num(m.d2_doc_count), total, suffix: ' 篇', tone: 'warn' },
+      { label: '待审核', value: num(m.pending_review_count), total, suffix: ' 篇', tone: 'bad' },
+    ], '暂无知识库数据')}`;
+}
+
+function renderKnowledgeInsight(m) {
+  const totalDocs = num(m.d1_doc_count) + num(m.d2_doc_count);
+  return `
+    <div class="insight-title">知识库情况</div>
+    <div class="insight-subtitle">关注知识沉淀规模和待审核积压，避免 AI 可用知识滞后。</div>
+    ${bigStat('今日更新次数', num(m.doc_updates_today))}
+    <div class="panel-list">
+      ${panelRow('知识库文档', totalDocs)}
+      ${panelRow('D1 已审核', num(m.d1_doc_count), 'good')}
+      ${panelRow('D2 研发知识', num(m.d2_doc_count), 'warn')}
+      ${panelRow('待审核', num(m.pending_review_count), num(m.pending_review_count) ? 'bad' : '')}
+    </div>`;
 }
 
 function bigStat(label, value) {
@@ -188,6 +310,34 @@ function panelRow(label, value, tone = '') {
     <div class="panel-row">
       <span>${label}</span>
       <strong class="${tone}">${value}</strong>
+    </div>`;
+}
+
+function renderShareBars(items, emptyText) {
+  const hasData = items.some(item => num(item.value) > 0);
+  if (!hasData) {
+    return `<div class="dashboard-empty-state">${emptyText}</div>`;
+  }
+
+  return `
+    <div class="share-bars">
+      ${items.map(item => {
+        const total = Math.max(1, num(item.total));
+        const value = num(item.value);
+        const width = Math.max(value > 0 ? 4 : 0, Math.min(100, (value / total) * 100));
+        const suffix = item.suffix || ' 单';
+        return `
+          <div class="share-bar-row">
+            <div class="share-bar-meta">
+              <span>${item.label}</span>
+              <strong>${value}${suffix}</strong>
+            </div>
+            <div class="share-bar-track">
+              <span class="share-bar-fill ${item.tone || ''}" style="width:${width.toFixed(1)}%;"></span>
+            </div>
+            <div class="share-bar-pct">${fmtPct(value / total)}</div>
+          </div>`;
+      }).join('')}
     </div>`;
 }
 
@@ -215,7 +365,9 @@ function renderOperationsChart(history) {
     const x = left + index * step + (step - barWidth) / 2;
     const barY = y(d.tickets);
     const barHeight = Math.max(2, top + height - barY);
-    return `<rect class="chart-bar" x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="5"></rect>`;
+    return `<rect class="chart-bar" x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="5">
+      <title>${chartTooltip(d)}</title>
+    </rect>`;
   }).join('');
 
   const linePoints = data.map((d, index) => {
@@ -225,7 +377,16 @@ function renderOperationsChart(history) {
 
   const lineDots = data.map((d, index) => {
     const x = left + index * step + step / 2;
-    return `<circle class="chart-dot" cx="${x.toFixed(1)}" cy="${y(d.escalations).toFixed(1)}" r="4"></circle>`;
+    return `<circle class="chart-dot" cx="${x.toFixed(1)}" cy="${y(d.escalations).toFixed(1)}" r="4">
+      <title>${chartTooltip(d)}</title>
+    </circle>`;
+  }).join('');
+
+  const hoverZones = data.map((d, index) => {
+    const x = left + index * step;
+    return `<rect class="chart-hover-zone" x="${x.toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height}">
+      <title>${chartTooltip(d)}</title>
+    </rect>`;
   }).join('');
 
   const labels = data.map((d, index) => {
@@ -246,8 +407,32 @@ function renderOperationsChart(history) {
       ${bars}
       <polyline class="chart-line" points="${linePoints}"></polyline>
       ${lineDots}
+      ${hoverZones}
       ${labels}
     </svg>`;
+}
+
+function chartTooltip(d) {
+  return `${escHtml(d.label || '')}：工单 ${num(d.tickets)} 单，升级 ${num(d.escalations)} 单`;
+}
+
+function getSatisfactionStats(m) {
+  const yes = num(m.satisfaction_yes);
+  const no = num(m.satisfaction_no);
+  const total = yes + no;
+  return { yes, no, total, rate: total ? yes / total : 0 };
+}
+
+function qualityNote(value) {
+  if (value >= 0.8) return '整体回答质量较稳';
+  if (value >= 0.6) return '需要关注中低置信回答';
+  return '建议补充知识库内容';
+}
+
+function confidenceColor(value) {
+  if (value >= 0.8) return 'var(--success)';
+  if (value >= 0.6) return 'var(--warning)';
+  return 'var(--danger)';
 }
 
 function normalizeDailyOperations(history) {

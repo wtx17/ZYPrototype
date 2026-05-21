@@ -912,6 +912,9 @@ def get_metrics() -> dict:
     escalated = c.execute(
         "SELECT COUNT(*) FROM escalations WHERE resolved_at IS NULL"
     ).fetchone()[0]
+    escalated_total = c.execute(
+        "SELECT COUNT(DISTINCT ticket_id) FROM escalations"
+    ).fetchone()[0]
     escalated_waiting = c.execute(
         "SELECT COUNT(*) FROM escalations e "
         "JOIN tickets t ON t.id = e.ticket_id "
@@ -990,8 +993,9 @@ def get_metrics() -> dict:
         "week_tickets": week,
         "pending_tickets": pending,
         "escalated_count": escalated,
+        "escalated_total": escalated_total,
         "escalated_waiting": escalated_waiting,
-        "escalation_rate": escalated / max(total, 1),
+        "escalation_rate": escalated_total / max(total, 1),
         "green_rate": green / total_logs,
         "yellow_rate": yellow / total_logs,
         "red_rate": red / total_logs,

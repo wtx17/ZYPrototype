@@ -171,6 +171,7 @@ class SystemMetrics(BaseModel):
     week_tickets: int = 0
     pending_tickets: int = 0
     escalated_count: int = 0
+    escalated_total: int = 0
     escalated_waiting: int = 0
     escalation_rate: float = 0
     green_rate: float = 0
