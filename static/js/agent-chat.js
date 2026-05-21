@@ -135,9 +135,7 @@ export function renderEndServiceButton(ticketId) {
 
 function parseMsgTime(dateStr) {
   if (!dateStr) return null;
-  // SQLite CURRENT_TIMESTAMP is UTC. Treat as UTC, convert to local.
-  const iso = dateStr.replace(' ', 'T') + 'Z';
-  const d = new Date(iso);
+  const d = new Date(dateStr.replace(' ', 'T'));
   if (isNaN(d.getTime())) return null;
   return d;
 }

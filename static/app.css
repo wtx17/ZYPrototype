@@ -677,6 +677,47 @@ tr:last-child td {
   font-weight: var(--weight-medium);
 }
 
+.tickets-table tr.row-active {
+  background: var(--accent-subtle);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tickets-table tr:hover {
+  background: var(--gray-50);
+}
+
+.tickets-table tr.row-active:hover {
+  background: var(--accent-subtle);
+}
+
+.section-title {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.detail-section {
+  margin-top: 16px;
+}
+
+/* ==================== Modal ==================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 40px 40px;
+  overflow-y: auto;
+}
+
 /* ==================== Review Cards ==================== */
 
 .review-card {
@@ -1678,7 +1719,6 @@ tr:last-child td {
   font-size: 14px;
   font-family: inherit;
   background: rgba(255, 255, 255, 0.7);
-}
 }
 
 .wiki-release-note {

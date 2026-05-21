@@ -63,6 +63,8 @@ def _init_db():
             assigned_rd_id INTEGER REFERENCES users(id),
             customer_user_id INTEGER REFERENCES users(id),
             service_ended INTEGER DEFAULT 0,
+            cs_accepted_at TIMESTAMP,
+            rd_accepted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -274,6 +276,11 @@ def _run_merge_migration(c):
 
 def _migrate_tickets(c):
     _migrate_users(c)
+    for col in ("cs_accepted_at", "rd_accepted_at"):
+        try:
+            c.execute(f"ALTER TABLE tickets ADD COLUMN {col} TIMESTAMP")
+        except Exception:
+            pass
     count = c.execute("SELECT COUNT(*) FROM wiki_pages").fetchone()[0]
     if count == 0:
         _seed_wiki_pages(c)
@@ -655,7 +662,19 @@ def list_tickets(created_by: Optional[str] = None, escalated_only: bool = False)
             (created_by,),
         ).fetchall()
     else:
-        rows = c.execute("SELECT * FROM tickets ORDER BY created_at DESC LIMIT 50").fetchall()
+        rows = c.execute(
+            "SELECT t.*, "
+            "cs.display_name AS cs_name, "
+            "rd.display_name AS rd_name, "
+            "cust.display_name AS customer_name, "
+            "sf.resolved AS satisfaction "
+            "FROM tickets t "
+            "LEFT JOIN users cs ON t.assigned_cs_id = cs.id "
+            "LEFT JOIN users rd ON t.assigned_rd_id = rd.id "
+            "LEFT JOIN users cust ON t.customer_user_id = cust.id "
+            "LEFT JOIN satisfaction_feedback sf ON t.id = sf.ticket_id "
+            "ORDER BY t.created_at DESC LIMIT 50"
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -674,8 +693,8 @@ def insert_ai_query_log(ticket_id: int, query_text: str, answer_text: str,
     c = get_conn()
     cur = c.execute(
         "INSERT INTO ai_query_logs (ticket_id, query_text, answer_text, citations_json, "
-        "confidence_score, confidence_label, d2_match_found) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "confidence_score, confidence_label, d2_match_found, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))",
         (ticket_id, query_text, answer_text, citations_json,
          confidence_score, confidence_label, 1 if d2_match_found else 0)
     )
@@ -700,7 +719,8 @@ def escalate_ticket(ticket_id: int, reason: str = "") -> bool:
         (ticket_id,),
     )
     c.execute(
-        "INSERT INTO escalations (ticket_id, reason) VALUES (?, ?)",
+        "INSERT INTO escalations (ticket_id, reason, created_at) "
+        "VALUES (?, ?, datetime('now', 'localtime'))",
         (ticket_id, reason),
     )
     _conn.commit()
@@ -726,7 +746,8 @@ def resolve_ticket_escalation(ticket_id: int, solution: str, version: Optional[s
 def add_handling_record(ticket_id: int, notes: str, user_id: int = 0) -> bool:
     c = get_conn()
     c.execute(
-        "INSERT INTO handling_records (ticket_id, user_id, notes) VALUES (?, ?, ?)",
+        "INSERT INTO handling_records (ticket_id, user_id, notes, created_at) "
+        "VALUES (?, ?, ?, datetime('now', 'localtime'))",
         (ticket_id, user_id or None, notes),
     )
     _conn.commit()
@@ -738,8 +759,13 @@ def add_handling_record(ticket_id: int, notes: str, user_id: int = 0) -> bool:
 def insert_message(ticket_id: int, sender_type: str, sender_name: str, content: str) -> int:
     c = get_conn()
     cur = c.execute(
-        "INSERT INTO messages (ticket_id, sender_type, sender_name, content) VALUES (?, ?, ?, ?)",
+        "INSERT INTO messages (ticket_id, sender_type, sender_name, content, created_at) "
+        "VALUES (?, ?, ?, ?, datetime('now', 'localtime'))",
         (ticket_id, sender_type, sender_name, content),
+    )
+    c.execute(
+        "UPDATE tickets SET updated_at = datetime('now', 'localtime') WHERE id = ?",
+        (ticket_id,),
     )
     _conn.commit()
     return cur.lastrowid
@@ -767,7 +793,8 @@ def get_last_message_id(ticket_id: int) -> int:
 def insert_satisfaction_feedback(ticket_id: int, resolved: str, feedback_text: str = "") -> int:
     c = get_conn()
     cur = c.execute(
-        "INSERT INTO satisfaction_feedback (ticket_id, resolved, feedback_text) VALUES (?, ?, ?)",
+        "INSERT INTO satisfaction_feedback (ticket_id, resolved, feedback_text, created_at) "
+        "VALUES (?, ?, ?, datetime('now', 'localtime'))",
         (ticket_id, resolved, feedback_text),
     )
     _conn.commit()
@@ -788,7 +815,8 @@ def get_satisfaction_feedback(ticket_id: int) -> Optional[dict]:
 def assign_ticket_cs(ticket_id: int, cs_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_cs_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+        "UPDATE tickets SET assigned_cs_id = ?, cs_accepted_at = datetime('now', 'localtime'), "
+        "updated_at = datetime('now', 'localtime') WHERE id = ?",
         (cs_user_id or None, ticket_id),
     )
     _conn.commit()
@@ -808,7 +836,8 @@ def clear_ticket_cs(ticket_id: int) -> bool:
 def assign_ticket_rd(ticket_id: int, rd_user_id: int = 0) -> bool:
     c = get_conn()
     cur = c.execute(
-        "UPDATE tickets SET assigned_rd_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+        "UPDATE tickets SET assigned_rd_id = ?, rd_accepted_at = datetime('now', 'localtime'), "
+        "updated_at = datetime('now', 'localtime') WHERE id = ?",
         (rd_user_id or None, ticket_id),
     )
     _conn.commit()
@@ -945,7 +974,8 @@ def get_metrics() -> dict:
 def save_wiki_page_version(page_id: int, title: str, content: str, editor: str) -> int:
     c = get_conn()
     cur = c.execute(
-        "INSERT INTO wiki_page_versions (page_id, title, content, editor) VALUES (?, ?, ?, ?)",
+        "INSERT INTO wiki_page_versions (page_id, title, content, editor, created_at) "
+        "VALUES (?, ?, ?, ?, datetime('now', 'localtime'))",
         (page_id, title, content, editor),
     )
     _conn.commit()

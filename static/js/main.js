@@ -19,7 +19,7 @@ import {
   renderDocReview,
   reviewKnowledge,
 } from './tabs/doc.js';
-import { loadMetrics, renderAllTickets, renderDashboard, loadManagerTickets, setTicketFilter } from './tabs/manager.js';
+import { loadMetrics, renderAllTickets, renderDashboard, loadManagerTickets, setTicketFilter, showManagerTicketDetail, closeTicketDetailModal } from './tabs/manager.js';
 import {
   renderRDEscalations,
   initRDSessions,
@@ -211,6 +211,8 @@ window.app = {
   loadMetrics,
   loadManagerTickets,
   setTicketFilter,
+  showManagerTicketDetail,
+  closeTicketDetailModal,
   loadPendingReviews,
   loadTickets,
   login,
