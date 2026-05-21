@@ -167,6 +167,7 @@ class QueryResponse(BaseModel):
 
 class SystemMetrics(BaseModel):
     total_tickets: int = 0
+    today_tickets: int = 0
     week_tickets: int = 0
     pending_tickets: int = 0
     escalated_count: int = 0
@@ -177,6 +178,7 @@ class SystemMetrics(BaseModel):
     red_rate: float = 0
     avg_confidence: float = 0
     ai_queries_today: int = 0
+    doc_updates_today: int = 0
     d1_doc_count: int = 0
     d2_doc_count: int = 0
     pending_review_count: int = 0
@@ -185,6 +187,7 @@ class SystemMetrics(BaseModel):
     cs_count: int = 0
     rd_count: int = 0
     doc_count: int = 0
+    daily_operations: list[dict] = Field(default_factory=list)
 
 
 # --- WebSocket Messaging ---

@@ -900,6 +900,9 @@ def get_next_ticket_id() -> int:
 def get_metrics() -> dict:
     c = get_conn()
     total = c.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
+    today = c.execute(
+        "SELECT COUNT(*) FROM tickets WHERE date(created_at) = date('now')"
+    ).fetchone()[0]
     week = c.execute(
         "SELECT COUNT(*) FROM tickets WHERE date(created_at) >= date('now', '-6 days')"
     ).fetchone()[0]
@@ -934,6 +937,9 @@ def get_metrics() -> dict:
     ai_today = c.execute(
         "SELECT COUNT(*) FROM ai_query_logs WHERE date(created_at) = date('now')"
     ).fetchone()[0]
+    doc_updates_today = c.execute(
+        "SELECT COUNT(*) FROM wiki_page_versions WHERE date(created_at) = date('now')"
+    ).fetchone()[0]
 
     sat_rows = c.execute(
         "SELECT resolved, COUNT(*) as cnt FROM satisfaction_feedback GROUP BY resolved"
@@ -946,8 +952,41 @@ def get_metrics() -> dict:
     ).fetchall()
     user_counts = {r["role"]: r["cnt"] for r in user_rows}
 
+    ticket_daily_rows = c.execute(
+        "SELECT date(created_at) as day, COUNT(*) as cnt "
+        "FROM tickets "
+        "WHERE date(created_at) >= date('now', '-6 days') "
+        "GROUP BY day"
+    ).fetchall()
+    escalation_daily_rows = c.execute(
+        "SELECT date(created_at) as day, COUNT(*) as cnt "
+        "FROM escalations "
+        "WHERE date(created_at) >= date('now', '-6 days') "
+        "GROUP BY day"
+    ).fetchall()
+    ticket_daily = {r["day"]: r["cnt"] for r in ticket_daily_rows}
+    escalation_daily = {r["day"]: r["cnt"] for r in escalation_daily_rows}
+    history_days = c.execute(
+        "WITH RECURSIVE days(day, n) AS ("
+        "  SELECT date('now', '-6 days'), 0 "
+        "  UNION ALL "
+        "  SELECT date(day, '+1 day'), n + 1 FROM days WHERE n < 6"
+        ") "
+        "SELECT day, strftime('%m/%d', day) as label FROM days"
+    ).fetchall()
+    daily_operations = [
+        {
+            "date": r["day"],
+            "label": r["label"],
+            "tickets": ticket_daily.get(r["day"], 0),
+            "escalations": escalation_daily.get(r["day"], 0),
+        }
+        for r in history_days
+    ]
+
     return {
         "total_tickets": total,
+        "today_tickets": today,
         "week_tickets": week,
         "pending_tickets": pending,
         "escalated_count": escalated,
@@ -958,6 +997,7 @@ def get_metrics() -> dict:
         "red_rate": red / total_logs,
         "avg_confidence": round(avg_conf, 2),
         "ai_queries_today": ai_today,
+        "doc_updates_today": doc_updates_today,
         "d1_doc_count": d1_count,
         "d2_doc_count": d2_count,
         "pending_review_count": pending_review,
@@ -966,6 +1006,7 @@ def get_metrics() -> dict:
         "cs_count": user_counts.get("cs", 0),
         "rd_count": user_counts.get("rd", 0),
         "doc_count": user_counts.get("doc", 0),
+        "daily_operations": daily_operations,
     }
 
 

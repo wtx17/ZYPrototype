@@ -5,13 +5,25 @@ import { escHtml, formatDate, formatDuration } from '../utils.js';
 // ==================== Dashboard ====================
 
 let _metricsTimer = null;
+let _dashboardView = 'overview';
+let _lastMetrics = null;
+
+const dashboardViews = [
+  { key: 'overview', label: '总览' },
+  { key: 'satisfaction', label: '满意度' },
+  { key: 'ai', label: 'AI 质量' },
+  { key: 'knowledge', label: '知识库情况' },
+];
 
 export function renderDashboard() {
   return `
-    <div class="card" style="margin-bottom:24px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h3 style="margin:0;">运营看板</h3>
-        <button class="btn btn-outline btn-sm" onclick="app.loadMetrics()">刷新</button>
+    <div class="manager-dashboard">
+      <div class="manager-dashboard-titlebar">
+        <div>
+          <div class="dashboard-eyebrow">Management Dashboard</div>
+          <h2>运营仪表盘</h2>
+        </div>
+        <button class="dashboard-refresh" onclick="app.loadMetrics()">刷新</button>
       </div>
       <div id="metricsDisplay"></div>
     </div>`;
@@ -21,51 +33,13 @@ export async function loadMetrics() {
   try {
     const data = await api('/api/metrics');
     const m = data.data;
+    _lastMetrics = m;
     const display = document.getElementById('metricsDisplay');
     if (!display) return;
-
-    const redRate = m.red_rate || 0;
-    display.innerHTML = `
-      <div class="dashboard-section">
-        <div class="dashboard-section-title">工单</div>
-        <div class="metrics-grid">
-          ${metricCard('本周新建', m.week_tickets)}
-          ${metricCard('待处理', m.pending_tickets, m.pending_tickets > 0 ? 'var(--warning)' : '')}
-          ${metricCard('升级中', m.escalated_count, m.escalated_count > 0 ? 'var(--danger)' : '')}
-          ${metricCard('已关闭', (m.total_tickets || 0) - (m.pending_tickets || 0) - (m.escalated_count || 0))}
-        </div>
-      </div>
-
-      <div class="dashboard-section">
-        <div class="dashboard-section-title">AI 质量</div>
-        <div class="metrics-grid">
-          ${metricCard('平均置信度', (m.avg_confidence * 100).toFixed(0) + '%', m.avg_confidence >= 0.8 ? 'var(--success)' : m.avg_confidence >= 0.6 ? 'var(--warning)' : 'var(--danger)')}
-          ${metricCard('今日查询', m.ai_queries_today)}
-          ${metricCard('绿色率', (m.green_rate * 100).toFixed(0) + '%', 'var(--success)')}
-          ${metricCard('红色率', (redRate * 100).toFixed(0) + '%', redRate > 0.2 ? 'var(--danger)' : redRate > 0.1 ? 'var(--warning)' : '')}
-        </div>
-      </div>
-
-      <div class="dashboard-section">
-        <div class="dashboard-section-title">满意度</div>
-        <div class="metrics-grid">
-          ${metricCard('好评', m.satisfaction_yes || 0, 'var(--success)')}
-          ${metricCard('差评', m.satisfaction_no || 0, m.satisfaction_no > 0 ? 'var(--danger)' : '')}
-          ${metricCard('好评率', ((m.satisfaction_yes || 0) + (m.satisfaction_no || 0) > 0 ? ((m.satisfaction_yes || 0) / ((m.satisfaction_yes || 0) + (m.satisfaction_no || 0)) * 100).toFixed(0) + '%' : '-'), 'var(--success)')}
-        </div>
-      </div>
-
-      <div class="dashboard-section">
-        <div class="dashboard-section-title">知识库</div>
-        <div class="metrics-grid">
-          ${metricCard('D1 已审核', m.d1_doc_count, 'var(--cs)')}
-          ${metricCard('D2 研发', m.d2_doc_count, 'var(--rd)')}
-          ${metricCard('待审核', m.pending_review_count, m.pending_review_count > 0 ? 'var(--warning)' : '')}
-        </div>
-      </div>
-    `;
+    display.innerHTML = renderMetricsDashboard(m);
   } catch (e) {
-    // ignore
+    const display = document.getElementById('metricsDisplay');
+    if (display) display.innerHTML = '<div class="dashboard-error">指标加载失败，请稍后重试。</div>';
   }
 
   // Auto-refresh every 30s
@@ -73,13 +47,230 @@ export async function loadMetrics() {
   _metricsTimer = setInterval(() => loadMetrics(), 30000);
 }
 
-function metricCard(label, value, color) {
-  const style = color ? ` style="color:${color};"` : '';
+export function setDashboardView(view) {
+  if (!dashboardViews.some(v => v.key === view)) return;
+  _dashboardView = view;
+  if (_lastMetrics) {
+    const display = document.getElementById('metricsDisplay');
+    if (display) display.innerHTML = renderMetricsDashboard(_lastMetrics);
+  }
+}
+
+function renderMetricsDashboard(m) {
+  const todayTickets = num(m.today_tickets);
+  const escalationRate = fmtPct(m.escalation_rate);
+  const docUpdatesToday = num(m.doc_updates_today);
+  const aiQueriesToday = num(m.ai_queries_today);
+  const closedTickets = Math.max(0, num(m.total_tickets) - num(m.pending_tickets) - num(m.escalated_count));
+
   return `
-    <div class="metric">
-      <div class="value"${style}>${value ?? '-'}</div>
-      <div class="label">${label}</div>
+    <div class="dashboard-toolbar">
+      <div class="dashboard-tabs">
+        ${dashboardViews.map(v => `
+          <button class="dashboard-tab-btn ${_dashboardView === v.key ? 'active' : ''}" onclick="app.setDashboardView('${v.key}')">
+            ${v.label}
+          </button>`).join('')}
+      </div>
+      <div class="dashboard-updated">自动刷新 · 30s</div>
+    </div>
+
+    <div class="dashboard-summary-grid">
+      ${summaryCard('今日工单数', todayTickets, `本周累计 ${num(m.week_tickets)} 单`)}
+      ${summaryCard('升级率', escalationRate, `${num(m.escalated_count)} 单升级中，${num(m.escalated_waiting)} 单待接管`)}
+      ${summaryCard('今日文档更新', docUpdatesToday, `${num(m.d1_doc_count) + num(m.d2_doc_count)} 篇知识库文档`)}
+      ${summaryCard('AI 提问次数', aiQueriesToday, `平均置信度 ${fmtPct(m.avg_confidence)}`)}
+    </div>
+
+    <div class="dashboard-main-grid">
+      <section class="dashboard-chart-card">
+        <div class="chart-header">
+          <div>
+            <h3>往日工单趋势</h3>
+            <p>柱状图为每日工单数量，折线为升级数量。</p>
+          </div>
+          <div class="chart-legend">
+            <span><i class="legend-bar"></i>工单数</span>
+            <span><i class="legend-line"></i>升级数</span>
+          </div>
+        </div>
+        ${renderOperationsChart(m.daily_operations)}
+      </section>
+
+      <section class="dashboard-insight-card">
+        ${renderInsightPanel(m, closedTickets)}
+      </section>
+    </div>
+  `;
+}
+
+function summaryCard(label, value, note) {
+  return `
+    <div class="summary-card">
+      <div class="summary-label">${label}</div>
+      <div class="summary-value">${value ?? '-'}</div>
+      <div class="summary-note">${note}</div>
     </div>`;
+}
+
+function renderInsightPanel(m, closedTickets) {
+  if (_dashboardView === 'satisfaction') {
+    const yes = num(m.satisfaction_yes);
+    const no = num(m.satisfaction_no);
+    const total = yes + no;
+    const rate = total ? yes / total : 0;
+    return `
+      <div class="insight-title">满意度</div>
+      <div class="insight-subtitle">客户服务结束后的反馈汇总</div>
+      ${bigStat('好评率', total ? fmtPct(rate) : '-')}
+      ${progressBar(rate, 'var(--success)')}
+      <div class="panel-list">
+        ${panelRow('好评', yes)}
+        ${panelRow('差评', no)}
+        ${panelRow('反馈总数', total)}
+      </div>
+    `;
+  }
+
+  if (_dashboardView === 'ai') {
+    return `
+      <div class="insight-title">AI 质量</div>
+      <div class="insight-subtitle">按回答置信度分层观察 AI 辅助效果</div>
+      ${bigStat('平均置信度', fmtPct(m.avg_confidence))}
+      <div class="panel-list">
+        ${panelRow('绿色率', fmtPct(m.green_rate), 'good')}
+        ${panelRow('黄色率', fmtPct(m.yellow_rate), 'warn')}
+        ${panelRow('红色率', fmtPct(m.red_rate), num(m.red_rate) > 0.2 ? 'bad' : '')}
+        ${panelRow('今日提问', num(m.ai_queries_today))}
+      </div>
+    `;
+  }
+
+  if (_dashboardView === 'knowledge') {
+    const approved = num(m.d1_doc_count);
+    const rd = num(m.d2_doc_count);
+    const pending = num(m.pending_review_count);
+    return `
+      <div class="insight-title">知识库情况</div>
+      <div class="insight-subtitle">D1 客服知识、D2 研发知识与审核队列</div>
+      ${bigStat('今日更新次数', num(m.doc_updates_today))}
+      <div class="panel-list">
+        ${panelRow('D1 已审核', approved)}
+        ${panelRow('D2 研发知识', rd)}
+        ${panelRow('待审核', pending, pending ? 'warn' : '')}
+        ${panelRow('文档人员', num(m.doc_count))}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="insight-title">运营总览</div>
+    <div class="insight-subtitle">今日数据与当前工单池状态</div>
+    ${bigStat('今日工单数', num(m.today_tickets))}
+    <div class="panel-list">
+      ${panelRow('待处理', num(m.pending_tickets), num(m.pending_tickets) ? 'warn' : '')}
+      ${panelRow('升级中', num(m.escalated_count), num(m.escalated_count) ? 'bad' : '')}
+      ${panelRow('已关闭', closedTickets, 'good')}
+      ${panelRow('总工单数', num(m.total_tickets))}
+    </div>
+  `;
+}
+
+function bigStat(label, value) {
+  return `
+    <div class="insight-big-stat">
+      <div>${label}</div>
+      <strong>${value}</strong>
+    </div>`;
+}
+
+function panelRow(label, value, tone = '') {
+  return `
+    <div class="panel-row">
+      <span>${label}</span>
+      <strong class="${tone}">${value}</strong>
+    </div>`;
+}
+
+function progressBar(value, color) {
+  const width = Math.max(0, Math.min(100, Math.round(num(value) * 100)));
+  return `
+    <div class="progress-bar">
+      <span style="width:${width}%;background:${color};"></span>
+    </div>`;
+}
+
+function renderOperationsChart(history) {
+  const data = normalizeDailyOperations(history);
+  const maxValue = Math.max(1, ...data.flatMap(d => [num(d.tickets), num(d.escalations)]));
+  const maxY = Math.max(5, Math.ceil(maxValue * 1.2));
+  const left = 46;
+  const top = 24;
+  const width = 604;
+  const height = 210;
+  const step = width / data.length;
+  const barWidth = Math.min(36, Math.max(20, step * 0.42));
+  const y = value => top + height - (num(value) / maxY) * height;
+
+  const bars = data.map((d, index) => {
+    const x = left + index * step + (step - barWidth) / 2;
+    const barY = y(d.tickets);
+    const barHeight = Math.max(2, top + height - barY);
+    return `<rect class="chart-bar" x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="5"></rect>`;
+  }).join('');
+
+  const linePoints = data.map((d, index) => {
+    const x = left + index * step + step / 2;
+    return `${x.toFixed(1)},${y(d.escalations).toFixed(1)}`;
+  }).join(' ');
+
+  const lineDots = data.map((d, index) => {
+    const x = left + index * step + step / 2;
+    return `<circle class="chart-dot" cx="${x.toFixed(1)}" cy="${y(d.escalations).toFixed(1)}" r="4"></circle>`;
+  }).join('');
+
+  const labels = data.map((d, index) => {
+    const x = left + index * step + step / 2;
+    return `<text class="chart-label" x="${x.toFixed(1)}" y="264" text-anchor="middle">${escHtml(d.label || '')}</text>`;
+  }).join('');
+
+  const ticks = [maxY, Math.round(maxY / 2), 0].map(value => {
+    const tickY = y(value);
+    return `
+      <line class="chart-gridline" x1="${left}" y1="${tickY.toFixed(1)}" x2="${left + width}" y2="${tickY.toFixed(1)}"></line>
+      <text class="chart-axis-label" x="34" y="${(tickY + 4).toFixed(1)}" text-anchor="end">${value}</text>`;
+  }).join('');
+
+  return `
+    <svg class="dashboard-svg" viewBox="0 0 690 280" role="img" aria-label="近七日工单与升级趋势">
+      ${ticks}
+      ${bars}
+      <polyline class="chart-line" points="${linePoints}"></polyline>
+      ${lineDots}
+      ${labels}
+    </svg>`;
+}
+
+function normalizeDailyOperations(history) {
+  if (Array.isArray(history) && history.length) return history;
+  const formatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' });
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    return {
+      label: formatter.format(date).replace(/\//g, '/'),
+      tickets: 0,
+      escalations: 0,
+    };
+  });
+}
+
+function fmtPct(value) {
+  return `${Math.round(num(value) * 100)}%`;
+}
+
+function num(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
 // ==================== All Tickets ====================
