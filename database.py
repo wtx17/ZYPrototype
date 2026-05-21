@@ -377,8 +377,8 @@ def insert_wiki_page(data: dict) -> int:
     if c.execute("SELECT 1 FROM wiki_pages WHERE slug = ?", (slug,)).fetchone():
         slug = f"{slug}-{_next_id(c, 'wiki_pages')}"
 
-    fields = ["slug", "title", "content"]
-    placeholders = [":slug", ":title", ":content"]
+    fields = ["slug", "title", "content", "created_at", "updated_at"]
+    placeholders = [":slug", ":title", ":content", "datetime('now', 'localtime')", "datetime('now', 'localtime')"]
     for key in ("parent_id", "status", "knowledge_type", "source", "owner",
                  "category", "keywords", "version", "entry_type", "release_note",
                  "source_ticket_id"):

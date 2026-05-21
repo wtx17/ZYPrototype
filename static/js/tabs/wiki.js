@@ -377,6 +377,10 @@ function buildTOC(slug) {
   const tipEl = document.getElementById('wikiTOCTip');
   if (tipEl) tipEl.style.display = 'none';
 
+  // Reset sidebar title in case switching back from version history
+  const titleEl = sidebar.querySelector('.wiki-toc-title');
+  if (titleEl) titleEl.textContent = '本文导读';
+
   const contentEl = document.querySelector(`.wiki-content`);
   if (!contentEl) {
     updateTOCList(sidebar, null);
