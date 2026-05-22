@@ -7,7 +7,7 @@ load_dotenv()
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "sk-your-key-here")
 BAILIAN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 LLM_MODEL = "qwen-plus"
-EMBEDDING_MODEL = "text-embedding-v2"
+EMBEDDING_MODEL = "text-embedding-v1"
 
 # --- Session ---
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-in-production")
