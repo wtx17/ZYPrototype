@@ -12,6 +12,7 @@ let _dashboardTransition = '';
 const dashboardViews = [
   { key: 'overview', label: '总览' },
   { key: 'satisfaction', label: '满意度' },
+  { key: 'sla', label: 'SLA 指标' },
   { key: 'ai', label: 'AI 质量' },
   { key: 'knowledge', label: '知识库情况' },
 ];
@@ -26,6 +27,11 @@ const dashboardViewConfigs = {
     cards: renderSatisfactionCards,
     chart: renderSatisfactionChart,
     insight: renderSatisfactionInsight,
+  },
+  sla: {
+    cards: renderSLACards,
+    chart: renderSLAChart,
+    insight: renderSLAInsight,
   },
   ai: {
     cards: renderAICards,
@@ -207,6 +213,53 @@ function renderSatisfactionInsight(m) {
       ${panelRow('好评', sat.yes, 'good')}
       ${panelRow('差评', sat.no, sat.no ? 'bad' : '')}
       ${panelRow('建议', sat.total ? (sat.rate >= 0.8 ? '体验稳定' : '关注差评原因') : '先积累反馈')}
+    </div>`;
+}
+
+function renderSLACards(m) {
+  const risk = num(m.sla_at_risk);
+  return [
+    summaryCard('平均首次响应', fmtMins(num(m.sla_response_sec)), `首次客服接管平均耗时`),
+    summaryCard('SLA 达标率', fmtPct(m.sla_compliance_rate), `${num(m.sla_compliant_count)} / ${num(m.sla_total_closed)} 单在 24h 内解决`),
+    summaryCard('平均解决时长', fmtHours(num(m.sla_resolution_sec)), `已完结工单平均处理时长`),
+    summaryCard('工单超时风险', risk, risk ? `${risk} 单超过 SLA 阈值未关闭` : '当前无超时工单'),
+  ].join('');
+}
+
+function renderSLAChart(m) {
+  const compliant = num(m.sla_compliant_count);
+  const total = num(m.sla_total_closed);
+  const breached = Math.max(0, total - compliant);
+  return `
+    <div class="chart-header">
+      <div>
+        <h3>SLA 达标分布</h3>
+        <p>以 24 小时为 SLA 阈值，统计已完结工单的时效表现。</p>
+      </div>
+      <div class="chart-legend">
+        <span><i class="legend-good"></i>达标</span>
+        <span><i class="legend-bad"></i>超时</span>
+      </div>
+    </div>
+    ${renderShareBars([
+      { label: 'SLA 达标', value: compliant, total, suffix: ' 单', tone: 'good' },
+      { label: 'SLA 超时', value: breached, total, suffix: ' 单', tone: 'bad' },
+    ], '暂无已完结工单')}`;
+}
+
+function renderSLAInsight(m) {
+  const risk = num(m.sla_at_risk);
+  const rate = num(m.sla_compliance_rate);
+  return `
+    <div class="insight-title">SLA 指标</div>
+    <div class="insight-subtitle">监控首次响应与解决时效，及时发现超时风险工单。</div>
+    ${bigStat('SLA 达标率', fmtPct(rate))}
+    ${progressBar(rate, rate >= 0.8 ? 'var(--success)' : rate >= 0.6 ? 'var(--warning)' : 'var(--danger)')}
+    <div class="panel-list">
+      ${panelRow('平均首次响应', fmtMins(num(m.sla_response_sec)))}
+      ${panelRow('平均解决时长', fmtHours(num(m.sla_resolution_sec)))}
+      ${panelRow('SLA 达标数', num(m.sla_compliant_count), 'good')}
+      ${panelRow('超时风险工单', risk, risk ? 'bad' : '')}
     </div>`;
 }
 
@@ -453,6 +506,21 @@ function fmtPct(value) {
   return `${Math.round(num(value) * 100)}%`;
 }
 
+function fmtMins(seconds) {
+  const sec = num(seconds);
+  if (sec <= 0) return '-';
+  if (sec < 60) return `${sec}秒`;
+  if (sec < 3600) return `${Math.round(sec / 60)} 分钟`;
+  return `${(sec / 3600).toFixed(1)} 小时`;
+}
+
+function fmtHours(seconds) {
+  const sec = num(seconds);
+  if (sec <= 0) return '-';
+  if (sec < 3600) return `${Math.round(sec / 60)} 分钟`;
+  return `${(sec / 3600).toFixed(1)} 小时`;
+}
+
 function num(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -606,6 +674,9 @@ export async function showManagerTicketDetail(ticketId, rowEl) {
     const satLabel = ticket.satisfaction === 'yes' ? '好评' : '差评';
     const satColor = ticket.satisfaction === 'yes' ? 'var(--success)' : 'var(--danger)';
     html += `<div><strong>满意度:</strong> <span style="color:${satColor};font-weight:600;">${satLabel}</span></div>`;
+    if (ticket.satisfaction_feedback) {
+      html += `<div style="grid-column:1/-1;margin-top:4px;padding:8px 12px;background:var(--gray-50);border-radius:var(--radius-sm);font-size:var(--text-sm);color:var(--text-secondary);"><strong>客户反馈:</strong> ${escHtml(ticket.satisfaction_feedback)}</div>`;
+    }
   }
 
   html += '</div>';

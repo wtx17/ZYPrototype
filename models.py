@@ -185,6 +185,12 @@ class SystemMetrics(BaseModel):
     pending_review_count: int = 0
     satisfaction_yes: int = 0
     satisfaction_no: int = 0
+    sla_response_sec: int = 0
+    sla_resolution_sec: int = 0
+    sla_compliance_rate: float = 0
+    sla_at_risk: int = 0
+    sla_total_closed: int = 0
+    sla_compliant_count: int = 0
     cs_count: int = 0
     rd_count: int = 0
     doc_count: int = 0

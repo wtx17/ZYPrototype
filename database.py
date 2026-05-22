@@ -667,7 +667,8 @@ def list_tickets(created_by: Optional[str] = None, escalated_only: bool = False)
             "cs.display_name AS cs_name, "
             "rd.display_name AS rd_name, "
             "cust.display_name AS customer_name, "
-            "sf.resolved AS satisfaction "
+            "sf.resolved AS satisfaction, "
+            "sf.feedback_text AS satisfaction_feedback "
             "FROM tickets t "
             "LEFT JOIN users cs ON t.assigned_cs_id = cs.id "
             "LEFT JOIN users rd ON t.assigned_rd_id = rd.id "
@@ -950,6 +951,49 @@ def get_metrics() -> dict:
     sat_yes = sum(r["cnt"] for r in sat_rows if r["resolved"] == "yes")
     sat_no = sum(r["cnt"] for r in sat_rows if r["resolved"] == "no")
 
+    # SLA metrics — compute from tickets table
+    sla_hours = 24
+    sla_sec = sla_hours * 3600
+
+    # Average first response time (creation → CS acceptance), seconds
+    avg_resp = c.execute(
+        "SELECT AVG(CAST(strftime('%s', cs_accepted_at) AS REAL) "
+        "- CAST(strftime('%s', created_at) AS REAL)) "
+        "FROM tickets WHERE cs_accepted_at IS NOT NULL "
+        "AND cs_accepted_at >= created_at"
+    ).fetchone()[0]
+
+    # Average resolution time (creation → close), seconds
+    avg_resolution = c.execute(
+        "SELECT AVG(CAST(strftime('%s', updated_at) AS REAL) "
+        "- CAST(strftime('%s', created_at) AS REAL)) "
+        "FROM tickets WHERE service_ended = 1 "
+        "AND updated_at >= created_at"
+    ).fetchone()[0]
+
+    # Total closed tickets
+    sla_total_closed = c.execute(
+        "SELECT COUNT(*) FROM tickets WHERE service_ended = 1"
+    ).fetchone()[0]
+
+    # Tickets closed within SLA threshold
+    sla_compliant = c.execute(
+        "SELECT COUNT(*) FROM tickets WHERE service_ended = 1 "
+        "AND updated_at >= created_at "
+        "AND (CAST(strftime('%s', updated_at) AS REAL) - "
+        "CAST(strftime('%s', created_at) AS REAL)) <= ?",
+        (sla_sec,)
+    ).fetchone()[0]
+
+    # Open tickets exceeding SLA threshold (at risk of breach)
+    sla_at_risk = c.execute(
+        "SELECT COUNT(*) FROM tickets "
+        "WHERE service_ended = 0 AND status != 'closed' "
+        "AND (CAST(strftime('%s', 'now') AS REAL) - "
+        "CAST(strftime('%s', created_at) AS REAL)) > ?",
+        (sla_sec,)
+    ).fetchone()[0]
+
     user_rows = c.execute(
         "SELECT role, COUNT(*) as cnt FROM users GROUP BY role"
     ).fetchall()
@@ -1007,6 +1051,12 @@ def get_metrics() -> dict:
         "pending_review_count": pending_review,
         "satisfaction_yes": sat_yes,
         "satisfaction_no": sat_no,
+        "sla_response_sec": round(avg_resp or 0),
+        "sla_resolution_sec": round(avg_resolution or 0),
+        "sla_compliance_rate": sla_compliant / max(sla_total_closed, 1),
+        "sla_at_risk": sla_at_risk,
+        "sla_total_closed": sla_total_closed,
+        "sla_compliant_count": sla_compliant,
         "cs_count": user_counts.get("cs", 0),
         "rd_count": user_counts.get("rd", 0),
         "doc_count": user_counts.get("doc", 0),
