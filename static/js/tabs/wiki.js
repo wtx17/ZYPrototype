@@ -194,7 +194,7 @@ export async function loadWikiPage(slug) {
     const metaTags = [
       isD2 ? '<span class="wiki-d2-label">研发知识库 (D2)</span>' : '',
       page.version ? `<span>版本: ${escHtml(page.version)}</span>` : '',
-      page.entry_type ? `<span>类型: ${escHtml(page.entry_type === 'solution' ? '技术方案' : page.entry_type === 'release_note' ? '发布说明' : page.entry_type)}</span>` : '',
+      page.entry_type ? `<span>类型: ${escHtml(page.entry_type === 'solution' ? '技术方案' : page.entry_type === 'release_note' ? '发布说明' : page.entry_type === 'general' ? '通用文档' : page.entry_type)}</span>` : '',
       page.keywords ? `<span>关键词: ${escHtml(page.keywords)}</span>` : '',
     ].filter(Boolean).join('');
 
@@ -633,7 +633,7 @@ export async function showWikiEditor(pageId) {
   if (!main) return;
 
   let page = { title: '', content: '', parent_id: null, slug: '',
-                 version: '', entry_type: '', release_note: '', keywords: '',
+                 version: '', entry_type: 'general', release_note: '', keywords: '',
                  knowledge_type: state.role === 'rd' ? 'd2' : 'd1' };
   let isEdit = false;
 
@@ -669,7 +669,7 @@ export async function showWikiEditor(pageId) {
     { val: 'd2', label: '研发知识库 (D2)' },
   ].map(o => `<option value="${o.val}" ${page.knowledge_type === o.val ? 'selected' : ''}>${o.label}</option>`).join('');
 
-  const entryTypeOptions = ['', 'solution', 'release_note']
+  const entryTypeOptions = ['general', 'solution', 'release_note']
     .map(t => `<option value="${t}" ${page.entry_type === t ? 'selected' : ''}>
       ${t === 'solution' ? '技术方案' : t === 'release_note' ? '发布说明' : '通用文档'}
     </option>`).join('');

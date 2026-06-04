@@ -8,3 +8,6 @@ chroma_db/
 deploy.sh
 *.log
 .DS_Store
+.codegraph/
+package-lock.json
+package.json

@@ -41,8 +41,8 @@ class WSClients:
         self.customers: dict[str, WebSocket] = {}       # customer_id -> ws
         self.cs_agents: dict[str, WebSocket] = {}       # cs_username -> ws
         self.rd_agents: dict[str, WebSocket] = {}       # rd_username -> ws
-        self.cs_users: dict[str, int] = {}              # cs_username -> user_id
-        self.rd_users: dict[str, int] = {}              # rd_username -> user_id
+        self.cs_users: dict[str, str] = {}              # cs_username -> user_id
+        self.rd_users: dict[str, str] = {}              # rd_username -> user_id
         self.ticket_map: dict[int, str] = {}            # ticket_id -> customer_id
         self.ticket_cs: dict[int, str] = {}             # ticket_id -> cs_username
         self.ticket_rd: dict[int, str] = {}             # ticket_id -> rd_username
@@ -54,12 +54,12 @@ class WSClients:
     async def register_customer(self, customer_id: str, ws: WebSocket):
         self.customers[customer_id] = ws
 
-    async def register_cs(self, username: str, ws: WebSocket, user_id: int = 0):
+    async def register_cs(self, username: str, ws: WebSocket, user_id: str = ""):
         self.cs_agents[username] = ws
         if user_id:
             self.cs_users[username] = user_id
 
-    async def register_rd(self, username: str, ws: WebSocket, user_id: int = 0):
+    async def register_rd(self, username: str, ws: WebSocket, user_id: str = ""):
         self.rd_agents[username] = ws
         if user_id:
             self.rd_users[username] = user_id
@@ -195,7 +195,6 @@ class WSClients:
             "title": title,
             "description": content,
             "status": TicketStatus.PENDING.value,
-            "created_by": "system",
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
         })

@@ -5,7 +5,7 @@ from __future__ import annotations
 from database import list_wiki_pages
 
 ENTRY_TYPE_CATEGORIES = [
-    ("", "通用文档"),
+    ("general", "通用文档"),
     ("solution", "技术方案"),
     ("release_note", "发布说明"),
 ]

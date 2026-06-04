@@ -3,7 +3,6 @@
 AI_KNOWLEDGE_ENTRIES = [
     {
         "title": "BGP 震荡排查标准流程",
-        "category": "网络故障排查",
         "keywords": "BGP,震荡,邻居,路由器,MTU",
         "content": (
             "BGP 震荡排查标准流程：\n"
@@ -20,7 +19,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "ERR-5043 数据库连接池耗尽 — 标准处理步骤",
-        "category": "故障排查",
         "keywords": "ERR-5043,数据库,连接池,慢查询",
         "content": (
             "ERR-5043：数据库连接池耗尽 (Connection Pool Exhausted)\n"
@@ -37,7 +35,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "常见错误码速查表",
-        "category": "参考文档",
         "keywords": "错误码,ERR,速查",
         "content": (
             "常见错误码速查表：\n"
@@ -51,7 +48,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "客户问题分类与响应模板",
-        "category": "客服规范",
         "keywords": "分类,模板,回复,客服",
         "content": (
             "客户问题分类与响应模板：\n"
@@ -70,7 +66,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "服务 SLA 承诺与违约条款",
-        "category": "参考文档",
         "keywords": "SLA,承诺,违约,响应时间",
         "content": (
             "智云科技客户服务 SLA 承诺：\n"
@@ -86,7 +81,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "工单升级判断标准",
-        "category": "客服规范",
         "keywords": "升级,工单,二线,判断标准",
         "content": (
             "工单升级判断标准（一线 → 二线研发）：\n"
@@ -104,7 +98,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "敏感信息脱敏处理规范",
-        "category": "安全规范",
         "keywords": "脱敏,敏感信息,安全,正则",
         "content": (
             "敏感信息脱敏处理规范：\n"
@@ -127,7 +120,6 @@ RD_KNOWLEDGE_ENTRIES = [
         "keywords": "缓存,API,Redis,内部",
         "entry_type": "solution",
         "release_note": None,
-        "source_ticket_id": None,
         "content": (
             "内部缓存刷新 API：POST /internal/api/v1/cache/refresh\n"
             "用途：当知识库内容更新后，调用此 API 刷新 Redis 缓存层，使新内容立即生效。\n"
@@ -145,7 +137,6 @@ RD_KNOWLEDGE_ENTRIES = [
         "keywords": "Release Notes,数据库,连接池,优化",
         "entry_type": "release_note",
         "release_note": "数据库连接池从固定大小改为动态调整，新增连接池监控指标",
-        "source_ticket_id": None,
         "content": (
             "Release Notes v5.1.0 (2026-03-15)\n"
             "变更类型：性能优化\n"
@@ -163,7 +154,6 @@ RD_KNOWLEDGE_ENTRIES = [
         "keywords": "版本管理,文档,SemVer,规范",
         "entry_type": "solution",
         "release_note": None,
-        "source_ticket_id": None,
         "content": (
             "知识库文档版本管理规范：\n"
             "1. 所有公开发布的技术手册必须遵循语义化版本号 (SemVer)：主版本.次版本.修订号。\n"

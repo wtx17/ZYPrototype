@@ -54,7 +54,6 @@ class AIKnowledge(BaseModel):
     id: Optional[int] = None
     title: str
     content: str
-    category: Optional[str] = None
     keywords: Optional[str] = None
     review_status: str = "pending"
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
@@ -64,7 +63,6 @@ class AIKnowledge(BaseModel):
 class KnowledgeSubmit(BaseModel):
     title: str
     content: str
-    category: Optional[str] = None
     keywords: Optional[str] = None
 
 
@@ -81,7 +79,6 @@ class RDKnowledge(BaseModel):
     keywords: Optional[str] = None
     version: Optional[str] = None
     release_note: Optional[str] = None
-    source_ticket_id: Optional[int] = None
     entry_type: str
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
@@ -91,7 +88,6 @@ class RDKnowledge(BaseModel):
 class TicketCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    created_by: str = "cs"
 
 
 class Ticket(BaseModel):
@@ -106,7 +102,6 @@ class Ticket(BaseModel):
     rd_solution: Optional[str] = None
     rd_version: Optional[str] = None
     handling_record: Optional[str] = None  # JSON array
-    created_by: str = "cs"
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 

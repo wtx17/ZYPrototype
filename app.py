@@ -285,11 +285,10 @@ async def submit_rd_knowledge(data: dict, request: Request):
         "content": data["content"],
         "knowledge_type": "d2",
         "status": "draft",
-        "owner": session["username"],
+        "owner_user_id": session["user_id"],
         "keywords": data.get("keywords", ""),
         "version": data.get("version", ""),
         "release_note": data.get("release_note"),
-        "source_ticket_id": data.get("source_ticket_id"),
         "entry_type": data.get("entry_type", "solution"),
     }
     db_id = insert_wiki_page(page_data)
@@ -299,7 +298,7 @@ async def submit_rd_knowledge(data: dict, request: Request):
         "rd",
         title=data["title"], content=data["content"],
         entry_type=page_data["entry_type"], version=page_data["version"],
-        keywords=page_data["keywords"], source_ticket_id=page_data["source_ticket_id"],
+        keywords=page_data["keywords"],
         release_note=page_data["release_note"], slug=new_page.get("slug", "") if new_page else "",
         wiki_page_id=db_id,
     )
@@ -318,11 +317,10 @@ async def publish_release_notes(data: dict, request: Request):
         "content": data["content"],
         "knowledge_type": "d2",
         "status": "draft",
-        "owner": session["username"],
+        "owner_user_id": session["user_id"],
         "keywords": data.get("keywords", ""),
         "version": data.get("version", ""),
         "release_note": data.get("release_note", ""),
-        "source_ticket_id": data.get("source_ticket_id"),
         "entry_type": "release_note",
     }
     db_id = insert_wiki_page(page_data)
@@ -384,11 +382,10 @@ async def submit_knowledge(data: KnowledgeSubmit, request: Request):
     page_data = {
         "title": data.title,
         "content": cleaned,
-        "category": data.category or "",
         "keywords": data.keywords or "",
         "status": "pending_review",
         "knowledge_type": "d1",
-        "owner": session["username"],
+        "owner_user_id": session["user_id"],
     }
     db_id = submit_for_review(page_data)
     return {"success": True, "id": db_id, "desensitized_changes": changes,
@@ -409,7 +406,7 @@ async def review_knowledge(page_id: int, data: KnowledgeReview, request: Request
         _sync_to_chroma(
             "ai",
             title=page["title"], content=page["content"],
-            category=page.get("category", ""), keywords=page.get("keywords", ""),
+            keywords=page.get("keywords", ""),
             slug=page.get("slug", ""), wiki_page_id=page_id,
         )
     elif data.review_status == "rejected":
@@ -454,7 +451,7 @@ async def get_tickets(request: Request):
     if session["role"] == "rd":
         tickets = list_tickets(escalated_only=True)
     elif session["role"] == "cs":
-        tickets = list_tickets(created_by="cs")
+        tickets = list_tickets()
     else:
         tickets = list_tickets()
 
@@ -478,7 +475,6 @@ async def create_ticket(ticket: TicketCreate):
         "title": ticket.title,
         "description": ticket.description or "",
         "status": "pending",
-        "created_by": ticket.created_by,
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
     }
@@ -493,7 +489,7 @@ async def record_handling(ticket_id: int, data: HandlingRecord, request: Request
     ticket = get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="工单不存在")
-    ok = add_handling_record(ticket_id, data.notes)
+    ok = add_handling_record(ticket_id, data.notes, session.get("user_id", ""))
     return {"success": ok, "message": "处理记录已保存"}
 
 
@@ -604,7 +600,7 @@ async def get_related_wiki_pages(slug: str, request: Request):
 @app.post("/api/wiki")
 async def create_wiki_page_route(data: dict, request: Request):
     """Create a new wiki page (doc, rd)."""
-    await require_role(request, ["doc", "rd"])
+    session = await require_role(request, ["doc", "rd"])
     title = (data.get("title") or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="标题不能为空")
@@ -612,7 +608,7 @@ async def create_wiki_page_route(data: dict, request: Request):
         "title": title,
         "content": data.get("content", ""),
         "parent_id": data.get("parent_id"),
-        "owner": data.get("owner", "doc"),
+        "owner_user_id": data.get("owner_user_id") or session["user_id"],
         "status": data.get("status", "draft"),
         "knowledge_type": data.get("knowledge_type", "d1"),
         "version": data.get("version", ""),
@@ -644,13 +640,11 @@ async def update_wiki_page_route(page_id: int, data: dict, request: Request):
         data["status"] = "draft"
 
     update_data = {}
-    for field in ("title", "content", "parent_id", "status", "category", "keywords",
-                   "version", "entry_type", "release_note", "source_ticket_id",
-                   "knowledge_type"):
+    for field in ("title", "content", "parent_id", "status", "keywords",
+                   "version", "entry_type", "release_note", "knowledge_type"):
         if field in data:
             val = data[field]
-            if field in ("title", "category", "keywords", "version", "entry_type",
-                         "release_note") and isinstance(val, str):
+            if field in ("title", "keywords", "version", "entry_type", "release_note") and isinstance(val, str):
                 val = val.strip()
             update_data[field] = val
     if not update_data:
