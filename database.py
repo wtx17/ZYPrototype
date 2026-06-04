@@ -884,10 +884,10 @@ def get_metrics() -> dict:
     c = get_conn()
     total = c.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
     today = c.execute(
-        "SELECT COUNT(*) FROM tickets WHERE date(created_at) = date('now')"
+        "SELECT COUNT(*) FROM tickets WHERE date(created_at) = date('now', 'localtime')"
     ).fetchone()[0]
     week = c.execute(
-        "SELECT COUNT(*) FROM tickets WHERE date(created_at) >= date('now', '-6 days')"
+        "SELECT COUNT(*) FROM tickets WHERE date(created_at) >= date('now', 'localtime', '-6 days')"
     ).fetchone()[0]
     pending = c.execute(
         "SELECT COUNT(*) FROM tickets WHERE status = 'pending'"
@@ -921,10 +921,10 @@ def get_metrics() -> dict:
     total_logs = len(logs) or 1
     avg_conf = sum(r["confidence_score"] or 0 for r in logs) / total_logs
     ai_today = c.execute(
-        "SELECT COUNT(*) FROM ai_query_logs WHERE date(created_at) = date('now')"
+        "SELECT COUNT(*) FROM ai_query_logs WHERE date(created_at) = date('now', 'localtime')"
     ).fetchone()[0]
     doc_updates_today = c.execute(
-        "SELECT COUNT(*) FROM wiki_page_versions WHERE date(created_at) = date('now')"
+        "SELECT COUNT(*) FROM wiki_page_versions WHERE date(created_at) = date('now', 'localtime')"
     ).fetchone()[0]
 
     sat_rows = c.execute(
@@ -969,17 +969,17 @@ def get_metrics() -> dict:
 
     ticket_daily_rows = c.execute(
         "SELECT date(created_at) as day, COUNT(*) as cnt "
-        "FROM tickets WHERE date(created_at) >= date('now', '-6 days') GROUP BY day"
+        "FROM tickets WHERE date(created_at) >= date('now', 'localtime', '-6 days') GROUP BY day"
     ).fetchall()
     escalation_daily_rows = c.execute(
         "SELECT date(created_at) as day, COUNT(*) as cnt "
-        "FROM escalations WHERE date(created_at) >= date('now', '-6 days') GROUP BY day"
+        "FROM escalations WHERE date(created_at) >= date('now', 'localtime', '-6 days') GROUP BY day"
     ).fetchall()
     ticket_daily = {r["day"]: r["cnt"] for r in ticket_daily_rows}
     escalation_daily = {r["day"]: r["cnt"] for r in escalation_daily_rows}
     history_days = c.execute(
         "WITH RECURSIVE days(day, n) AS ("
-        "  SELECT date('now', '-6 days'), 0 "
+        "  SELECT date('now', 'localtime', '-6 days'), 0 "
         "  UNION ALL "
         "  SELECT date(day, '+1 day'), n + 1 FROM days WHERE n < 6"
         ") SELECT day, strftime('%m/%d', day) as label FROM days"
