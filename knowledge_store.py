@@ -90,7 +90,6 @@ def _ingest_ai_from_db(embeddings: BailianEmbeddings) -> Chroma:
         metadata = {
             "title": entry["title"],
             "slug": entry.get("slug", ""),
-            "keywords": entry.get("keywords", ""),
             "wiki_page_id": entry["id"],
         }
         docs.append(LangchainDoc(page_content=entry["content"], metadata=metadata))
@@ -102,12 +101,11 @@ def _ingest_ai_from_db(embeddings: BailianEmbeddings) -> Chroma:
     )
 
 
-def add_to_ai_knowledge(title: str, content: str, keywords: str = "",
-                        slug: str = "", wiki_page_id: int = 0) -> str:
+def add_to_ai_knowledge(title: str, content: str, slug: str = "", wiki_page_id: int = 0) -> str:
     store = get_ai_vector_store()
     doc = LangchainDoc(
         page_content=content,
-        metadata={"title": title, "slug": slug, "keywords": keywords, "wiki_page_id": wiki_page_id},
+        metadata={"title": title, "slug": slug, "wiki_page_id": wiki_page_id},
     )
     ids = store.add_documents([doc])
     return ids[0] if ids else ""
@@ -145,9 +143,7 @@ def _ingest_rd_from_db(embeddings: BailianEmbeddings) -> Chroma:
         metadata = {
             "title": entry["title"],
             "slug": entry.get("slug", ""),
-            "version": entry.get("version", ""),
             "entry_type": entry.get("entry_type", ""),
-            "keywords": entry.get("keywords", ""),
             "wiki_page_id": entry["id"],
         }
         docs.append(LangchainDoc(page_content=entry["content"], metadata=metadata))
@@ -159,12 +155,12 @@ def _ingest_rd_from_db(embeddings: BailianEmbeddings) -> Chroma:
     )
 
 
-def add_to_rd_knowledge(title: str, content: str, entry_type: str, version: str = "",
-                        keywords: str = "", release_note: Optional[str] = None,
-                        slug: str = "", wiki_page_id: int = 0) -> str:
+def add_to_rd_knowledge(title: str, content: str, entry_type: str,
+                        release_note: Optional[str] = None, slug: str = "",
+                        wiki_page_id: int = 0) -> str:
     store = get_rd_vector_store()
     metadata = {
-        "title": title, "slug": slug, "entry_type": entry_type, "version": version, "keywords": keywords,
+        "title": title, "slug": slug, "entry_type": entry_type,
         "wiki_page_id": wiki_page_id,
     }
     if release_note:

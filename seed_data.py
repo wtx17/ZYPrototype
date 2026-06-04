@@ -3,7 +3,6 @@
 AI_KNOWLEDGE_ENTRIES = [
     {
         "title": "BGP 震荡排查标准流程",
-        "keywords": "BGP,震荡,邻居,路由器,MTU",
         "content": (
             "BGP 震荡排查标准流程：\n"
             "1. 登录核心路由器，执行 show bgp summary 检查邻居状态。重点关注 State 列是否为 Established，"
@@ -19,7 +18,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "ERR-5043 数据库连接池耗尽 — 标准处理步骤",
-        "keywords": "ERR-5043,数据库,连接池,慢查询",
         "content": (
             "ERR-5043：数据库连接池耗尽 (Connection Pool Exhausted)\n"
             "触发条件：应用服务器数据库连接池使用率达到 100%，新请求无法获取连接。\n"
@@ -35,7 +33,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "常见错误码速查表",
-        "keywords": "错误码,ERR,速查",
         "content": (
             "常见错误码速查表：\n"
             "ERR-1024：API 密钥无效或已过期 → 检查密钥是否在有效期内，确认未达到调用次数上限。\n"
@@ -48,7 +45,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "客户问题分类与响应模板",
-        "keywords": "分类,模板,回复,客服",
         "content": (
             "客户问题分类与响应模板：\n"
             "A 类 — 查询类（约 40%）：客户询问功能使用方法、配置参数含义、API 文档位置等。\n"
@@ -66,7 +62,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "服务 SLA 承诺与违约条款",
-        "keywords": "SLA,承诺,违约,响应时间",
         "content": (
             "智云科技客户服务 SLA 承诺：\n"
             "响应时间：P0 级故障 ≤ 1 小时 / P1 级故障 ≤ 4 小时 / P2 级问题 ≤ 8 小时 / P3 级咨询 ≤ 24 小时。\n"
@@ -81,7 +76,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "工单升级判断标准",
-        "keywords": "升级,工单,二线,判断标准",
         "content": (
             "工单升级判断标准（一线 → 二线研发）：\n"
             "必须升级的情况：\n"
@@ -98,7 +92,6 @@ AI_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "敏感信息脱敏处理规范",
-        "keywords": "脱敏,敏感信息,安全,正则",
         "content": (
             "敏感信息脱敏处理规范：\n"
             "脱敏范围：客户工单中的以下信息在进入 AI 知识库前必须自动脱敏：\n"
@@ -116,8 +109,6 @@ AI_KNOWLEDGE_ENTRIES = [
 RD_KNOWLEDGE_ENTRIES = [
     {
         "title": "内部缓存刷新 API 使用说明",
-        "version": "v1.8.0",
-        "keywords": "缓存,API,Redis,内部",
         "entry_type": "solution",
         "release_note": None,
         "content": (
@@ -133,8 +124,6 @@ RD_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "Release Notes v5.1.0 — 数据库连接池优化",
-        "version": "v5.1.0",
-        "keywords": "Release Notes,数据库,连接池,优化",
         "entry_type": "release_note",
         "release_note": "数据库连接池从固定大小改为动态调整，新增连接池监控指标",
         "content": (
@@ -150,8 +139,6 @@ RD_KNOWLEDGE_ENTRIES = [
     },
     {
         "title": "知识库文档版本管理规范",
-        "version": "v2.1.0",
-        "keywords": "版本管理,文档,SemVer,规范",
         "entry_type": "solution",
         "release_note": None,
         "content": (

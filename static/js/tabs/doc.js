@@ -35,7 +35,6 @@ export async function loadPendingReviews() {
       <div class="review-card-meta">
         <span>提交人: ${escHtml(entry.owner || '-')}</span>
         <span>${formatDate(entry.created_at || entry.updated_at)}</span>
-        ${entry.keywords ? `<span>关键词: ${escHtml(entry.keywords)}</span>` : ''}
       </div>
       ${entry.content ? `
         <div class="review-card-preview">${escHtml(entry.content.substring(0, 180))}${entry.content.length > 180 ? '...' : ''}</div>

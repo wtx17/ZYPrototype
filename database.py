@@ -108,7 +108,6 @@ def _init_db():
             knowledge_type TEXT DEFAULT 'd1',
             owner_user_id TEXT REFERENCES users(id),
             entry_type_id INTEGER REFERENCES entry_types(id),
-            version TEXT DEFAULT '',
             release_note TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -118,21 +117,6 @@ def _init_db():
         CREATE INDEX IF NOT EXISTS idx_wiki_pages_type ON wiki_pages(knowledge_type);
         CREATE INDEX IF NOT EXISTS idx_wiki_pages_parent ON wiki_pages(parent_id);
         CREATE INDEX IF NOT EXISTS idx_wiki_pages_entry_type ON wiki_pages(entry_type_id);
-
-        CREATE TABLE IF NOT EXISTS knowledge_keywords (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS wiki_page_keywords (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            page_id INTEGER NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
-            keyword_id INTEGER NOT NULL REFERENCES knowledge_keywords(id),
-            UNIQUE(page_id, keyword_id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_wiki_page_keywords_page ON wiki_page_keywords(page_id);
-        CREATE INDEX IF NOT EXISTS idx_wiki_page_keywords_keyword ON wiki_page_keywords(keyword_id);
 
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -221,9 +205,11 @@ def _schema_is_legacy(c: sqlite3.Connection) -> bool:
         return True
     if "created_by" in tickets_cols:
         return True
-    if {"category", "keywords", "source", "source_ticket_id"} & set(wiki_cols):
+    if {"category", "keywords", "source", "source_ticket_id", "version"} & set(wiki_cols):
         return True
     if "entry_type_id" not in wiki_cols and wiki_cols:
+        return True
+    if _table_columns(c, "knowledge_keywords") or _table_columns(c, "wiki_page_keywords"):
         return True
     return False
 
@@ -278,7 +264,6 @@ def _seed_wiki_pages(c: sqlite3.Connection):
             "status": "approved",
             "knowledge_type": "d1",
             "entry_type": "general",
-            "keywords": entry.get("keywords", ""),
             "created_at": now,
             "updated_at": now,
         })
@@ -291,8 +276,6 @@ def _seed_wiki_pages(c: sqlite3.Connection):
             "status": "draft",
             "knowledge_type": "d2",
             "entry_type": entry.get("entry_type", "solution"),
-            "version": entry.get("version", ""),
-            "keywords": entry.get("keywords", ""),
             "release_note": entry.get("release_note") or "",
             "created_at": now,
             "updated_at": now,
@@ -369,50 +352,10 @@ def _resolve_user_id(value: Optional[str]) -> Optional[str]:
     return row["id"] if row else None
 
 
-def _split_keywords(keywords: Optional[str]) -> list[str]:
-    if not keywords:
-        return []
-    parts = re.split(r"[,，]", keywords)
-    seen = set()
-    result = []
-    for part in parts:
-        kw = part.strip()
-        key = kw.lower()
-        if kw and key not in seen:
-            seen.add(key)
-            result.append(kw)
-    return result
-
-
-def _set_page_keywords(page_id: int, keywords: Optional[str]):
-    c = get_conn()
-    c.execute("DELETE FROM wiki_page_keywords WHERE page_id = ?", (page_id,))
-    for keyword in _split_keywords(keywords):
-        c.execute("INSERT OR IGNORE INTO knowledge_keywords (name) VALUES (?)", (keyword,))
-        row = c.execute("SELECT id FROM knowledge_keywords WHERE name = ?", (keyword,)).fetchone()
-        if row:
-            c.execute(
-                "INSERT OR IGNORE INTO wiki_page_keywords (page_id, keyword_id) VALUES (?, ?)",
-                (page_id, row["id"]),
-            )
-
-
-def _page_keywords(page_id: int) -> str:
-    c = get_conn()
-    rows = c.execute(
-        "SELECT kk.name FROM knowledge_keywords kk "
-        "JOIN wiki_page_keywords wpk ON wpk.keyword_id = kk.id "
-        "WHERE wpk.page_id = ? ORDER BY kk.name",
-        (page_id,),
-    ).fetchall()
-    return ",".join(r["name"] for r in rows)
-
-
 def _page_row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["entry_type"] = d.pop("entry_type", None) or ""
     d["owner"] = d.get("owner_username") or d.get("owner_user_id") or ""
-    d["keywords"] = _page_keywords(d["id"])
     return d
 
 
@@ -502,20 +445,18 @@ def insert_wiki_page(data: dict) -> int:
         "knowledge_type": data.get("knowledge_type", "d1"),
         "owner_user_id": owner_user_id,
         "entry_type_id": entry_type_id,
-        "version": data.get("version", "") or "",
         "release_note": data.get("release_note", "") or "",
         "created_at": data.get("created_at") or datetime.now().isoformat(),
         "updated_at": data.get("updated_at") or datetime.now().isoformat(),
     }
     cur = c.execute(
         "INSERT INTO wiki_pages (slug, title, content, parent_id, status, knowledge_type, "
-        "owner_user_id, entry_type_id, version, release_note, created_at, updated_at) "
+        "owner_user_id, entry_type_id, release_note, created_at, updated_at) "
         "VALUES (:slug, :title, :content, :parent_id, :status, :knowledge_type, "
-        ":owner_user_id, :entry_type_id, :version, :release_note, :created_at, :updated_at)",
+        ":owner_user_id, :entry_type_id, :release_note, :created_at, :updated_at)",
         values,
     )
     page_id = cur.lastrowid
-    _set_page_keywords(page_id, data.get("keywords", ""))
     _conn.commit()
     return page_id
 
@@ -530,8 +471,7 @@ def update_wiki_page(page_id: int, data: dict, editor: str = "") -> bool:
 
     fields = []
     values = []
-    direct_fields = ("title", "content", "parent_id", "status", "knowledge_type",
-                     "version", "release_note")
+    direct_fields = ("title", "content", "parent_id", "status", "knowledge_type", "release_note")
     for key in direct_fields:
         if key in data:
             fields.append(f"{key} = ?")
@@ -554,20 +494,11 @@ def update_wiki_page(page_id: int, data: dict, editor: str = "") -> bool:
         fields.append("slug = ?")
         values.append(slug)
 
-    if "keywords" in data:
-        _set_page_keywords(page_id, data.get("keywords", ""))
-
-    if not fields and "keywords" not in data:
+    if not fields:
         return False
-    if fields:
-        fields.append("updated_at = datetime('now', 'localtime')")
-        values.append(page_id)
-        cur = c.execute(f"UPDATE wiki_pages SET {', '.join(fields)} WHERE id = ?", values)
-    else:
-        cur = c.execute(
-            "UPDATE wiki_pages SET updated_at = datetime('now', 'localtime') WHERE id = ?",
-            (page_id,),
-        )
+    fields.append("updated_at = datetime('now', 'localtime')")
+    values.append(page_id)
+    cur = c.execute(f"UPDATE wiki_pages SET {', '.join(fields)} WHERE id = ?", values)
     _conn.commit()
     return cur.rowcount > 0
 
@@ -596,10 +527,7 @@ def search_wiki_pages(query: str, knowledge_type: Optional[str] = None) -> list[
         f"{where} ORDER BY wp.updated_at DESC LIMIT 20",
         params,
     ).fetchall()
-    results = [dict(r) for r in rows]
-    for r in results:
-        r["keywords"] = _page_keywords(r["id"])
-    return results
+    return [dict(r) for r in rows]
 
 
 def list_pending_review_pages() -> list[dict]:
@@ -616,14 +544,6 @@ def approve_page(page_id: int) -> bool:
 
 def reject_page(page_id: int) -> bool:
     return update_wiki_page(page_id, {"status": "draft"})
-
-
-def list_wiki_keywords(knowledge_type: Optional[str] = None) -> list[dict]:
-    pages = list_wiki_pages(knowledge_type=knowledge_type)
-    return [
-        {"title": p["title"], "slug": p["slug"], "keywords": p.get("keywords", "")}
-        for p in pages
-    ]
 
 
 def list_approved_d1_pages() -> list[dict]:
@@ -649,28 +569,7 @@ def get_related_pages(page_id: int, limit: int = 5) -> list[dict]:
     result_ids = set()
     results = []
 
-    keyword_rows = c.execute(
-        "SELECT keyword_id FROM wiki_page_keywords WHERE page_id = ?",
-        (page_id,),
-    ).fetchall()
-    keyword_ids = [r["keyword_id"] for r in keyword_rows]
-    if keyword_ids:
-        placeholders = ",".join("?" for _ in keyword_ids)
-        rows = c.execute(
-            "SELECT DISTINCT wp.id, wp.title, wp.slug, wp.knowledge_type "
-            "FROM wiki_pages wp "
-            "JOIN wiki_page_keywords wpk ON wpk.page_id = wp.id "
-            f"WHERE wp.id != ? AND wp.knowledge_type = ? AND wpk.keyword_id IN ({placeholders}) "
-            "ORDER BY wp.id DESC LIMIT ?",
-            [page_id, page["knowledge_type"], *keyword_ids, limit],
-        ).fetchall()
-        for r in rows:
-            result_ids.add(r["id"])
-            d = dict(r)
-            d["keywords"] = _page_keywords(r["id"])
-            results.append(d)
-
-    if len(results) < limit and page.get("parent_id") is not None:
+    if page.get("parent_id") is not None:
         rows = c.execute(
             "SELECT id, title, slug, knowledge_type FROM wiki_pages "
             "WHERE id != ? AND parent_id = ? ORDER BY id DESC LIMIT ?",
@@ -679,9 +578,7 @@ def get_related_pages(page_id: int, limit: int = 5) -> list[dict]:
         for r in rows:
             if r["id"] not in result_ids:
                 result_ids.add(r["id"])
-                d = dict(r)
-                d["keywords"] = _page_keywords(r["id"])
-                results.append(d)
+                results.append(dict(r))
 
     if len(results) < limit:
         rows = c.execute(
@@ -691,9 +588,7 @@ def get_related_pages(page_id: int, limit: int = 5) -> list[dict]:
         ).fetchall()
         for r in rows:
             if r["id"] not in result_ids:
-                d = dict(r)
-                d["keywords"] = _page_keywords(r["id"])
-                results.append(d)
+                results.append(dict(r))
 
     return results
 

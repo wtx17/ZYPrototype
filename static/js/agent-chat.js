@@ -1,19 +1,13 @@
 import { escHtml } from './utils.js';
 import { state } from './state.js';
 
-// Build sorted term→slug map (longest terms first to avoid partial matches)
-let _kwTerms = null;
-function getKwTerms() {
-  if (_kwTerms) return _kwTerms;
+// Build sorted title→slug map (longest titles first to avoid partial matches)
+let _titleTerms = null;
+function getTitleTerms() {
+  if (_titleTerms) return _titleTerms;
   const map = new Map();
-  for (const entry of state.keywordIndex) {
+  for (const entry of state.titleIndex) {
     const terms = [entry.title];
-    if (entry.keywords) {
-      entry.keywords.split(',').forEach(kw => {
-        const t = kw.trim();
-        if (t) terms.push(t);
-      });
-    }
     for (const term of terms) {
       if (term.length < 2) continue;
       const existing = map.get(term);
@@ -22,15 +16,15 @@ function getKwTerms() {
       }
     }
   }
-  _kwTerms = Array.from(map.entries())
+  _titleTerms = Array.from(map.entries())
     .sort((a, b) => b[0].length - a[0].length);
-  return _kwTerms;
+  return _titleTerms;
 }
 
-function linkifyKeywords(text) {
+function linkifyTitles(text) {
   if (!text) return '';
   const safe = escHtml(text);
-  const terms = getKwTerms();
+  const terms = getTitleTerms();
   if (!terms.length) return safe;
 
   // Escape regex special chars in terms, build alternation
@@ -72,7 +66,7 @@ export function renderAgentChatBubble(msg, index) {
         <span class="msg-sender">${escHtml(senderLabel)}</span>
       </div>
       <div class="msg-bubble ${isCustomer ? 'bubble-customer' : 'bubble-agent'}">
-        ${isCustomer ? linkifyKeywords(msg.content) : escHtml(msg.content)}
+        ${isCustomer ? linkifyTitles(msg.content) : escHtml(msg.content)}
       </div>
       ${isCustomer ? `
         <div class="msg-ask-btn">

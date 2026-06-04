@@ -82,7 +82,6 @@ from database import (
     list_pending_review_pages,
     submit_for_review,
     get_related_pages,
-    list_wiki_keywords,
     approve_page,
     reject_page,
     list_approved_d1_pages,
@@ -286,8 +285,6 @@ async def submit_rd_knowledge(data: dict, request: Request):
         "knowledge_type": "d2",
         "status": "draft",
         "owner_user_id": session["user_id"],
-        "keywords": data.get("keywords", ""),
-        "version": data.get("version", ""),
         "release_note": data.get("release_note"),
         "entry_type": data.get("entry_type", "solution"),
     }
@@ -297,8 +294,7 @@ async def submit_rd_knowledge(data: dict, request: Request):
     chroma_msg = _sync_to_chroma(
         "rd",
         title=data["title"], content=data["content"],
-        entry_type=page_data["entry_type"], version=page_data["version"],
-        keywords=page_data["keywords"],
+        entry_type=page_data["entry_type"],
         release_note=page_data["release_note"], slug=new_page.get("slug", "") if new_page else "",
         wiki_page_id=db_id,
     )
@@ -318,8 +314,6 @@ async def publish_release_notes(data: dict, request: Request):
         "knowledge_type": "d2",
         "status": "draft",
         "owner_user_id": session["user_id"],
-        "keywords": data.get("keywords", ""),
-        "version": data.get("version", ""),
         "release_note": data.get("release_note", ""),
         "entry_type": "release_note",
     }
@@ -329,8 +323,7 @@ async def publish_release_notes(data: dict, request: Request):
     chroma_msg = _sync_to_chroma(
         "rd",
         title=data["title"], content=data["content"],
-        entry_type="release_note", version=page_data["version"],
-        keywords=page_data["keywords"], release_note=page_data["release_note"],
+        entry_type="release_note", release_note=page_data["release_note"],
         slug=new_page.get("slug", "") if new_page else "",
         wiki_page_id=db_id,
     )
@@ -382,7 +375,6 @@ async def submit_knowledge(data: KnowledgeSubmit, request: Request):
     page_data = {
         "title": data.title,
         "content": cleaned,
-        "keywords": data.keywords or "",
         "status": "pending_review",
         "knowledge_type": "d1",
         "owner_user_id": session["user_id"],
@@ -406,7 +398,6 @@ async def review_knowledge(page_id: int, data: KnowledgeReview, request: Request
         _sync_to_chroma(
             "ai",
             title=page["title"], content=page["content"],
-            keywords=page.get("keywords", ""),
             slug=page.get("slug", ""), wiki_page_id=page_id,
         )
     elif data.review_status == "rejected":
@@ -543,14 +534,16 @@ async def get_wiki_tree(request: Request):
     return {"success": True, "data": tree}
 
 
-@app.get("/api/wiki/keyword-index")
-async def get_wiki_keyword_index(request: Request):
-    """Return keyword→slug mapping for auto-linking in chat messages."""
+@app.get("/api/wiki/title-index")
+async def get_wiki_title_index(request: Request):
+    """Return title→slug mapping for auto-linking in chat messages."""
     session = await require_role(request, ["cs", "rd", "doc", "manager"])
-    if session["role"] in ("rd", "doc"):
-        items = list_wiki_keywords()
-    else:
-        items = list_wiki_keywords(knowledge_type="d1")
+    kt = None if session["role"] in ("rd", "doc") else "d1"
+    items = [
+        {"title": p["title"], "slug": p["slug"]}
+        for p in list_wiki_pages(knowledge_type=kt)
+        if p.get("status") == "approved" or session["role"] in ("rd", "doc")
+    ]
     return {"success": True, "data": items}
 
 
@@ -611,10 +604,8 @@ async def create_wiki_page_route(data: dict, request: Request):
         "owner_user_id": data.get("owner_user_id") or session["user_id"],
         "status": data.get("status", "draft"),
         "knowledge_type": data.get("knowledge_type", "d1"),
-        "version": data.get("version", ""),
         "entry_type": data.get("entry_type", ""),
         "release_note": data.get("release_note", ""),
-        "keywords": data.get("keywords", ""),
     }
     page_id = insert_wiki_page(page_data)
     page = get_wiki_page(page_id)
@@ -640,11 +631,11 @@ async def update_wiki_page_route(page_id: int, data: dict, request: Request):
         data["status"] = "draft"
 
     update_data = {}
-    for field in ("title", "content", "parent_id", "status", "keywords",
-                   "version", "entry_type", "release_note", "knowledge_type"):
+    for field in ("title", "content", "parent_id", "status",
+                   "entry_type", "release_note", "knowledge_type"):
         if field in data:
             val = data[field]
-            if field in ("title", "keywords", "version", "entry_type", "release_note") and isinstance(val, str):
+            if field in ("title", "entry_type", "release_note") and isinstance(val, str):
                 val = val.strip()
             update_data[field] = val
     if not update_data:

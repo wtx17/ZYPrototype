@@ -13,11 +13,6 @@ export function renderWikiBrowser() {
   return `
     <div class="wiki-container">
       <div class="wiki-sidebar">
-        <div class="wiki-filter-bar">
-          <input type="text" id="wikiFilterInput" placeholder="在目录中筛选..."
-            oninput="app.filterWikiTree()"
-            onkeydown="if(event.key==='Escape'){this.value='';app.filterWikiTree();}if(event.key==='Enter'){app.searchWiki()}">
-        </div>
         ${state.role === 'doc' ? `
           <div class="wiki-actions">
             <a href="#" class="wiki-new-page-link" onclick="event.preventDefault();app.showWikiEditor()">+ 新建页面</a>
@@ -112,7 +107,7 @@ function renderTreeNode(node, depth) {
           data-wiki-toggle="${node.id}"
           onclick="event.stopPropagation();app.toggleTreeNode(${node.id})">▸</span>
         <span class="wiki-tree-label ${isActive ? 'active' : ''} ${isDraft || isPending ? 'wiki-tree-dim' : ''}"
-          onclick="${hasChildren ? `app.toggleTreeNode(${node.id})` : (node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : '')}">
+          onclick="${node.slug ? `app.loadWikiPage('${escHtml(node.slug)}')` : (hasChildren ? `app.toggleTreeNode(${node.id})` : '')}">
           ${escHtml(node.title)}
           ${statusDot}
           ${isD2 ? '<span class="wiki-d2-dot" title="D2 研发知识库"></span>' : ''}
@@ -193,9 +188,7 @@ export async function loadWikiPage(slug) {
 
     const metaTags = [
       isD2 ? '<span class="wiki-d2-label">研发知识库 (D2)</span>' : '',
-      page.version ? `<span>版本: ${escHtml(page.version)}</span>` : '',
       page.entry_type ? `<span>类型: ${escHtml(page.entry_type === 'solution' ? '技术方案' : page.entry_type === 'release_note' ? '发布说明' : page.entry_type === 'general' ? '通用文档' : page.entry_type)}</span>` : '',
-      page.keywords ? `<span>关键词: ${escHtml(page.keywords)}</span>` : '',
     ].filter(Boolean).join('');
 
     const breadcrumbs = buildBreadcrumbs(slug, page);
@@ -552,80 +545,6 @@ function basicMarkdown(text) {
   return html;
 }
 
-// ==================== Search / Filter ====================
-
-export function filterWikiTree() {
-  const input = document.getElementById('wikiFilterInput');
-  if (!input) return;
-  const query = input.value.trim().toLowerCase();
-
-  if (!query) {
-    renderTree(_wikiTreeData);
-    return;
-  }
-
-  if (query.length < 2) {
-    renderTree(_wikiTreeData);
-    return;
-  }
-
-  // Filter tree: keep nodes whose title matches, plus their ancestors
-  const filtered = filterNodes(_wikiTreeData, query);
-  renderTree(filtered);
-}
-
-function filterNodes(nodes, query) {
-  const result = [];
-  for (const node of nodes) {
-    const titleMatch = (node.title || '').toLowerCase().includes(query);
-    const childMatches = node.children ? filterNodes(node.children, query) : [];
-    if (titleMatch || childMatches.length > 0) {
-      result.push({ ...node, children: childMatches.length > 0 ? childMatches : (node.children || []) });
-      if (titleMatch && childMatches.length === 0 && node.children && node.children.length > 0) {
-        // Title matches but no children match — still show children for context
-        result[result.length - 1].children = node.children;
-      }
-    }
-  }
-  return result;
-}
-
-export async function searchWiki(query) {
-  if (query === undefined) {
-    const input = document.getElementById('wikiFilterInput');
-    if (!input) return;
-    query = input.value.trim();
-  }
-
-  if (!query) {
-    renderTree(_wikiTreeData);
-    return;
-  }
-
-  if (query.length < 2) return;
-
-  try {
-    const data = await api('/api/wiki/search?q=' + encodeURIComponent(query));
-    const results = data.data || [];
-    const tree = document.getElementById('wikiTree');
-    if (!tree) return;
-
-    if (!results.length) {
-      tree.innerHTML = '<div class="empty" style="padding:20px;">无匹配结果</div>';
-      return;
-    }
-
-    tree.innerHTML = results.map(r => `
-      <div class="wiki-search-result" onclick="app.loadWikiPage('${escHtml(r.slug)}')">
-        <div class="wiki-result-title">${escHtml(r.title)}</div>
-        <div class="wiki-result-meta">${formatDate(r.updated_at)}</div>
-      </div>
-    `).join('');
-  } catch (e) {
-    // ignore search errors
-  }
-}
-
 // ==================== Editor ====================
 
 export async function showWikiEditor(pageId) {
@@ -633,7 +552,7 @@ export async function showWikiEditor(pageId) {
   if (!main) return;
 
   let page = { title: '', content: '', parent_id: null, slug: '',
-                 version: '', entry_type: 'general', release_note: '', keywords: '',
+                 entry_type: 'general', release_note: '',
                  knowledge_type: state.role === 'rd' ? 'd2' : 'd1' };
   let isEdit = false;
 
@@ -689,12 +608,6 @@ export async function showWikiEditor(pageId) {
           <div class="section-label">标题</div>
           <input type="text" id="wikiEditorTitle" value="${escHtml(page.title)}" placeholder="页面标题">
         </div>
-        <div>
-          <div class="section-label">版本号</div>
-          <input type="text" id="wikiEditorVersion" value="${escHtml(page.version || '')}" placeholder="如 v1.0">
-        </div>
-      </div>
-      <div class="wiki-editor-grid" style="margin-top:8px;">
         ${showKt ? `
           <div>
             <div class="section-label">知识库分类</div>
@@ -713,10 +626,6 @@ export async function showWikiEditor(pageId) {
         <div>
           <div class="section-label">文档类型</div>
           <select id="wikiEditorEntryType">${entryTypeOptions}</select>
-        </div>
-        <div>
-          <div class="section-label">关键词</div>
-          <input type="text" id="wikiEditorKeywords" value="${escHtml(page.keywords || '')}" placeholder="逗号分隔">
         </div>
       </div>
       <div class="section-label" style="margin-top:8px;">发布说明</div>
@@ -754,10 +663,8 @@ export async function saveWikiPage(pageId) {
   const titleEl = document.getElementById('wikiEditorTitle');
   const parentEl = document.getElementById('wikiEditorParent');
   const contentEl = document.getElementById('wikiEditorContent');
-  const versionEl = document.getElementById('wikiEditorVersion');
   const entryTypeEl = document.getElementById('wikiEditorEntryType');
   const releaseNoteEl = document.getElementById('wikiEditorReleaseNote');
-  const keywordsEl = document.getElementById('wikiEditorKeywords');
   const ktEl = document.getElementById('wikiEditorKnowledgeType');
 
   if (!titleEl || !contentEl) return;
@@ -769,10 +676,8 @@ export async function saveWikiPage(pageId) {
     title: title,
     content: contentEl.value,
     parent_id: parentEl ? (parentEl.value || null) : null,
-    version: versionEl ? versionEl.value.trim() : '',
     entry_type: entryTypeEl ? entryTypeEl.value : '',
     release_note: releaseNoteEl ? releaseNoteEl.value.trim() : '',
-    keywords: keywordsEl ? keywordsEl.value.trim() : '',
     knowledge_type: ktEl ? ktEl.value : (state.role === 'rd' ? 'd2' : 'd1'),
   };
   if (body.parent_id) body.parent_id = parseInt(body.parent_id);

@@ -118,7 +118,6 @@ def build_wiki_tree(include_d2: bool = False, is_doc: bool = False) -> list[dict
                 "owner": p.get("owner", "rd"),
                 "updated_at": p.get("created_at", ""),
                 "source": "d2",
-                "version": p.get("version", ""),
                 "entry_type": et,
                 "status": p.get("status", "draft"),
                 "children": [],

@@ -137,7 +137,7 @@ export function renderApp() {
   root.innerHTML = renderMain();
   _initWsStatus();
   switchTab(state.currentTab);
-  loadKeywordIndex();
+  loadTitleIndex();
   _initKwLinkDelegation();
 }
 
@@ -246,16 +246,16 @@ window.app = {
   refreshSessions,
   scrollChatBottom,
 
-  // Keyword index
-  loadKeywordIndex,
+  // Title index
+  loadTitleIndex,
 };
 
-export async function loadKeywordIndex() {
-  if (state.keywordIndex.length > 0) return;
+export async function loadTitleIndex() {
+  if (state.titleIndex.length > 0) return;
   try {
-    const resp = await api('/api/wiki/keyword-index');
+    const resp = await api('/api/wiki/title-index');
     if (resp.success && resp.data) {
-      state.keywordIndex = resp.data;
+      state.titleIndex = resp.data;
     }
   } catch (e) {
     // Best-effort; don't break anything if it fails
