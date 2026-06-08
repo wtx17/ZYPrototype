@@ -874,6 +874,27 @@ def list_active_tickets_for_agent(agent_name: str, role: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def list_tickets_by_customer(customer_user_id: str) -> list[dict]:
+    c = get_conn()
+    rows = c.execute(
+        "SELECT t.*, "
+        "cs.display_name AS cs_name, "
+        "rd.display_name AS rd_name, "
+        "cust.display_name AS customer_name, "
+        "sf.resolved AS satisfaction, "
+        "sf.feedback_text AS satisfaction_feedback "
+        "FROM tickets t "
+        "LEFT JOIN users cs ON t.assigned_cs_id = cs.id "
+        "LEFT JOIN users rd ON t.assigned_rd_id = rd.id "
+        "LEFT JOIN users cust ON t.customer_user_id = cust.id "
+        "LEFT JOIN satisfaction_feedback sf ON t.id = sf.ticket_id "
+        "WHERE t.customer_user_id = ? "
+        "ORDER BY t.created_at DESC LIMIT 50",
+        (customer_user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_next_ticket_id() -> int:
     return _next_ticket_id(get_conn())
 

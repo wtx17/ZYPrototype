@@ -308,6 +308,8 @@ class WSClients:
     async def handle_satisfaction(self, ticket_id: int, resolved: str, feedback_text: str = ""):
         """Customer submits satisfaction feedback."""
         insert_satisfaction_feedback(ticket_id, resolved, feedback_text)
+        label = "已解决" if resolved == "yes" else "未解决"
+        insert_message(ticket_id, "system", "系统", f"客户已评价：{label}")
 
     def get_available_cs_count(self) -> int:
         return len(self.cs_agents)

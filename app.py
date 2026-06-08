@@ -55,6 +55,7 @@ from database import (
     insert_ticket,
     get_ticket,
     list_tickets,
+    list_tickets_by_customer,
     update_ticket_status,
     insert_ai_query_log,
     list_ai_query_logs,
@@ -705,6 +706,143 @@ async def generate_customer_token(data: CustomerTokenRequest = None):
         entry["expires_at"] = time.time() + CUSTOMER_TOKEN_TTL
     _customer_tokens[token] = entry
     return CustomerTokenResponse(token=token, customer_id=customer_id)
+
+
+def _get_customer_id_from_token(token: str) -> str | None:
+    """Validate a customer token and return the customer_id, or None."""
+    if not token or token not in _customer_tokens:
+        return None
+    entry = _customer_tokens[token]
+    if CUSTOMER_TOKEN_TTL > 0 and entry.get("expires_at", 0) < time.time():
+        del _customer_tokens[token]
+        return None
+    return entry["customer_id"]
+
+
+# ==================== Customer Tickets ====================
+
+
+@app.get("/api/customer/tickets")
+async def get_customer_tickets(token: str = ""):
+    """List tickets for a customer, authenticated via token."""
+    customer_id = _get_customer_id_from_token(token)
+    if not customer_id:
+        raise HTTPException(status_code=401, detail="无效的客户令牌")
+    user = get_or_create_user(customer_id, customer_id, "customer")
+    tickets = list_tickets_by_customer(user["id"])
+    return {"success": True, "data": tickets, "count": len(tickets)}
+
+
+@app.post("/api/customer/tickets")
+async def create_customer_ticket(data: dict, token: str = ""):
+    """Create a ticket on behalf of a customer."""
+    customer_id = _get_customer_id_from_token(token)
+    if not customer_id:
+        raise HTTPException(status_code=401, detail="无效的客户令牌")
+
+    title = (data.get("title") or "").strip()
+    description = (data.get("description") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not description:
+        raise HTTPException(status_code=400, detail="描述不能为空")
+
+    user = get_or_create_user(customer_id, customer_id, "customer")
+
+    ticket_data = {
+        "title": title,
+        "description": description,
+        "status": "pending",
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    tid = insert_ticket(ticket_data)
+    update_ticket_customer(tid, user["id"])
+
+    # Register customer in ws_clients for routing (best-effort)
+    if customer_id in ws_clients.customers:
+        ws_clients.ticket_map[tid] = customer_id
+
+    # Insert the description as the first message
+    insert_message(tid, "customer", customer_id, description)
+
+    # Notify CS agents via WebSocket
+    ticket = get_ticket(tid)
+    await ws_clients.send_to_all_cs({
+        "type": "new_session",
+        "payload": {
+            "ticket_id": tid,
+            "title": ticket.get("title", "") if ticket else title,
+            "customer_id": customer_id,
+        },
+    })
+
+    return {"success": True, "ticket_id": tid, "message": "工单已提交"}
+
+
+@app.post("/api/customer/tickets/{ticket_id}/reply")
+async def customer_reply(ticket_id: int, data: dict, token: str = ""):
+    """Customer replies to their ticket via REST."""
+    customer_id = _get_customer_id_from_token(token)
+    if not customer_id:
+        raise HTTPException(status_code=401, detail="无效的客户令牌")
+
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+
+    user = get_or_create_user(customer_id, customer_id, "customer")
+    if ticket.get("customer_user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="无权操作此工单")
+
+    if ticket.get("service_ended") or ticket.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="工单已关闭，无法回复")
+
+    content = (data.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="回复内容不能为空")
+
+    await ws_clients.handle_customer_message(ticket_id, content, customer_id)
+    return {"success": True, "message": "回复已发送"}
+
+
+@app.post("/api/customer/tickets/{ticket_id}/close")
+async def customer_close_ticket(ticket_id: int, token: str = ""):
+    """Customer closes their own ticket."""
+    customer_id = _get_customer_id_from_token(token)
+    if not customer_id:
+        raise HTTPException(status_code=401, detail="无效的客户令牌")
+
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+
+    user = get_or_create_user(customer_id, customer_id, "customer")
+    if ticket.get("customer_user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="无权操作此工单")
+
+    if ticket.get("service_ended") or ticket.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="工单已关闭")
+
+    insert_message(ticket_id, "system", "系统", "客户已结束工单")
+    end_ticket_service(ticket_id)
+    # Resolve any open escalation
+    get_conn().execute(
+        "UPDATE escalations SET resolved_at = datetime('now', 'localtime') "
+        "WHERE ticket_id = ? AND resolved_at IS NULL",
+        (ticket_id,)
+    )
+    get_conn().commit()
+    await ws_clients.send_to_cs(ticket_id, {
+        "type": "ticket_closed",
+        "payload": {"ticket_id": ticket_id},
+    })
+    await ws_clients.send_to_rd(ticket_id, {
+        "type": "ticket_closed",
+        "payload": {"ticket_id": ticket_id},
+    })
+
+    return {"success": True, "message": "工单已结束"}
 
 
 # ==================== Messages ====================
